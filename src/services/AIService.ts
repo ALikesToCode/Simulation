@@ -1,7 +1,4 @@
-import OpenAI from 'openai'
-import { GoogleGenerativeAI } from '@google/generative-ai'
-import Anthropic from '@anthropic-ai/sdk'
-import { PineconeClient } from '@pinecone-database/pinecone'
+import { ConfigService } from './ConfigService'
 
 interface AIResponse {
   text: string
@@ -10,23 +7,14 @@ interface AIResponse {
 }
 
 export class AIService {
-  private openai: OpenAI
-  private gemini: GoogleGenerativeAI
-  private anthropic: Anthropic
-  private pinecone: PineconeClient
-  
+  private apiUrl: string
+
   constructor() {
-    this.openai = new OpenAI()
-    this.gemini = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
-    this.anthropic = new Anthropic()
-    this.pinecone = new PineconeClient()
+    this.apiUrl = ConfigService.apiUrl
   }
 
   async init() {
-    await this.pinecone.init({
-      environment: process.env.PINECONE_ENVIRONMENT || '',
-      apiKey: process.env.PINECONE_API_KEY || ''
-    })
+    // No initialization needed for frontend service
   }
 
   async getAgentResponse(
@@ -35,61 +23,23 @@ export class AIService {
     context: any
   ): Promise<AIResponse> {
     try {
-      switch (provider) {
-        case 'openai': {
-          const response = await this.openai.chat.completions.create({
-            model: 'gpt-4',
-            messages: [
-              { 
-                role: 'system', 
-                content: 'You are an agent in a multi-agent simulation. Your goal is to...' 
-              },
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.7
-          })
-          
-          return {
-            text: response.choices[0]?.message?.content || '',
-            reasoning: ['Reasoning step 1', 'Reasoning step 2'],
-            confidence: 0.85
-          }
-        }
-        
-        case 'gemini': {
-          const model = this.gemini.getGenerativeModel({ model: 'gemini-pro' })
-          const response = await model.generateContent(prompt)
-          const result = response.response.text()
-          
-          return {
-            text: result,
-            reasoning: ['Reasoning step 1', 'Reasoning step 2'],
-            confidence: 0.8
-          }
-        }
-        
-        case 'anthropic': {
-          const response = await this.anthropic.messages.create({
-            model: 'claude-3-opus-20240229',
-            max_tokens: 1024,
-            messages: [
-              {
-                role: 'user',
-                content: prompt
-              }
-            ]
-          })
-          
-          return {
-            text: response.content[0].text,
-            reasoning: ['Reasoning step 1', 'Reasoning step 2'],
-            confidence: 0.9
-          }
-        }
-        
-        default:
-          throw new Error('Invalid AI provider')
+      const response = await fetch(`${this.apiUrl}/api/agent/response`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider,
+          prompt,
+          context
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get agent response')
       }
+
+      return await response.json()
     } catch (error) {
       console.error('AI Service Error:', error)
       throw error
@@ -97,14 +47,19 @@ export class AIService {
   }
 
   async updateKnowledgeBase(documents: string[]) {
-    // Implementation for RAG using Pinecone
     try {
-      const index = this.pinecone.Index('agent-knowledge')
-      
-      // Convert documents to embeddings and store in Pinecone
-      // This is a simplified version - you'll need to implement proper
-      // document processing and embedding generation
-      
+      const response = await fetch(`${this.apiUrl}/api/knowledge/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ documents })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update knowledge base')
+      }
+
       return true
     } catch (error) {
       console.error('Knowledge Base Update Error:', error)
@@ -113,15 +68,20 @@ export class AIService {
   }
 
   async queryKnowledge(query: string) {
-    // Implementation for querying the knowledge base
     try {
-      const index = this.pinecone.Index('agent-knowledge')
-      
-      // Convert query to embedding and search in Pinecone
-      // This is a simplified version - you'll need to implement proper
-      // query processing and similarity search
-      
-      return []
+      const response = await fetch(`${this.apiUrl}/api/knowledge/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to query knowledge base')
+      }
+
+      return await response.json()
     } catch (error) {
       console.error('Knowledge Query Error:', error)
       throw error
