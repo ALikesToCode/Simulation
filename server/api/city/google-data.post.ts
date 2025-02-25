@@ -6,10 +6,10 @@ export default defineEventHandler(async (event) => {
     const body = await readBody(event)
     const { center, radius } = body
 
-    if (!body || !body.location) {
+    if (!body || !center) {
       throw createError({
         status: 400,
-        message: 'Location is required'
+        message: 'Center coordinates are required'
       })
     }
 
@@ -18,72 +18,107 @@ export default defineEventHandler(async (event) => {
     // Get nearby places (buildings)
     const placesResponse = await client.placesNearby({
       params: {
-        location: { lat: center[0], lng: center[1] },
-        radius,
+        location: { lat: center.lat, lng: center.lng },
+        radius: radius || 500, // Reduced radius to get fewer results
         key: config.googleMapsApiKey,
-        type: 'building'
+        type: 'establishment'
       }
     })
 
-    const buildings = await Promise.all(
-      placesResponse.data.results.map(async place => {
-        try {
-          // Get place details for more information
-          const details = await client.placeDetails({
-            params: {
-              place_id: place.place_id || '',
-              key: config.googleMapsApiKey,
-              fields: ['geometry', 'name', 'type', 'building_levels']
-            }
-          })
+    // Process places without additional API calls to avoid rate limits
+    const buildings = placesResponse.data.results.map((place, index) => {
+      const location = place.geometry?.location || { lat: center.lat, lng: center.lng }
+      
+      // Convert lat/lng to x/z coordinates (simplified)
+      const x = (location.lng - center.lng) * 111000 * Math.cos(center.lat * Math.PI / 180)
+      const z = (location.lat - center.lat) * 111000
+      
+      // Generate random but consistent building dimensions
+      const width = 20 + (index % 5) * 5
+      const height = 30 + (index % 4) * 10 // Simplified height calculation
+      const depth = 20 + (index % 3) * 8
 
-          return {
-            id: place.place_id,
-            width: 20, // Approximate building width
-            height: ((details.data.result as any)?.building_levels || 3) * 3, // Approximate height based on levels
-            depth: 20, // Approximate building depth
-            type: place.types?.[0] || 'building',
-            properties: {
-              name: place.name,
-              types: place.types,
-              rating: place.rating
-            },
-            location: place.geometry?.location || { lat: 0, lng: 0 }
-          }
-        } catch (error) {
-          console.error('Error fetching place details:', error)
-          return null
-        }
-      })
-    )
-
-    // Get roads using Roads API
-    const roadsResponse = await client.snapToRoads({
-      params: {
-        path: [
-          { lat: center[0] - 0.01, lng: center[1] - 0.01 },
-          { lat: center[0] + 0.01, lng: center[1] + 0.01 }
-        ],
-        key: config.googleMapsApiKey
-      }
-    })
-
-    const roads = roadsResponse.data.snappedPoints.map((point, i, arr) => {
-      if (i === 0) return null
       return {
-        id: `road_${i}`,
-        path: [
-          { x: arr[i-1].location.longitude, y: 0, z: arr[i-1].location.latitude },
-          { x: point.location.longitude, y: 0, z: point.location.latitude }
-        ],
-        width: 8,
-        type: 'road'
+        id: place.place_id || `building_${index}`,
+        name: place.name,
+        position: {
+          x,
+          y: 0,
+          z
+        },
+        dimensions: {
+          width,
+          height,
+          depth
+        },
+        type: place.types?.[0] || 'building',
+        color: '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')
       }
-    }).filter(Boolean)
+    })
 
+    // If no buildings were found, generate some random ones
+    if (buildings.length === 0) {
+      console.log('No buildings found, generating random buildings')
+      for (let i = 0; i < 10; i++) {
+        const angle = (i / 10) * Math.PI * 2
+        const distance = 200 + Math.random() * 300
+        const x = Math.cos(angle) * distance
+        const z = Math.sin(angle) * distance
+        
+        buildings.push({
+          id: `building_${i}`,
+          name: `Building ${i}`,
+          position: {
+            x,
+            y: 0,
+            z
+          },
+          dimensions: {
+            width: 30 + Math.random() * 40,
+            height: 40 + Math.random() * 60,
+            depth: 30 + Math.random() * 40
+          },
+          type: 'building',
+          color: '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')
+        })
+      }
+    }
+
+    // Create some roads
+    const roads = []
+    const gridSize = 5
+    const spacing = 100
+    
+    // Main roads
+    roads.push({
+      id: 'road_0',
+      name: 'Main Street',
+      path: [
+        { x: -gridSize * spacing, y: 0, z: 0 },
+        { x: gridSize * spacing, y: 0, z: 0 }
+      ],
+      width: 10,
+      type: 'road'
+    })
+    
+    roads.push({
+      id: 'road_1',
+      name: 'Cross Street',
+      path: [
+        { x: 0, y: 0, z: -gridSize * spacing },
+        { x: 0, y: 0, z: gridSize * spacing }
+      ],
+      width: 10,
+      type: 'road'
+    })
+
+    console.log(`Returning ${buildings.length} buildings and ${roads.length} roads`)
+    
     return {
-      buildings: buildings.filter(Boolean),
-      roads
+      buildings: buildings,
+      roads: roads,
+      pois: [],
+      center: center
     }
   } catch (error: any) {
     console.error('Failed to load Google Places data:', error)

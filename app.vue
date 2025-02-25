@@ -2,9 +2,15 @@
   <div class="app">
     <nav class="navigation">
       <div class="nav-logo">Multi-Agent Simulation</div>
-      <div class="nav-links">
-        <NuxtLink to="/" class="nav-link">Simulation</NuxtLink>
-        <NuxtLink to="/map3d" class="nav-link">3D Map</NuxtLink>
+      <button class="mobile-menu-button" @click="toggleMobileMenu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="nav-links" :class="{ 'mobile-open': mobileMenuOpen }">
+        <NuxtLink to="/" class="nav-link" @click="closeMobileMenu">Home</NuxtLink>
+        <NuxtLink to="/simulation" class="nav-link" @click="closeMobileMenu">Integrated Simulation</NuxtLink>
+        <NuxtLink to="/map3d" class="nav-link" @click="closeMobileMenu">3D Map</NuxtLink>
       </div>
     </nav>
     <main class="main-content">
@@ -14,7 +20,17 @@
 </template>
 
 <script setup lang="ts">
-// No need to import components here as we're using NuxtPage
+import { ref } from 'vue';
+
+const mobileMenuOpen = ref(false);
+
+const toggleMobileMenu = () => {
+  mobileMenuOpen.value = !mobileMenuOpen.value;
+};
+
+const closeMobileMenu = () => {
+  mobileMenuOpen.value = false;
+};
 </script>
 
 <style>
@@ -77,6 +93,57 @@ html, body {
 .main-content {
   flex: 1;
   overflow: hidden;
+}
+
+.mobile-menu-button {
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 30px;
+  height: 21px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  z-index: 10;
+}
+
+.mobile-menu-button span {
+  width: 100%;
+  height: 3px;
+  background-color: white;
+  border-radius: 3px;
+}
+
+/* Media queries for responsive design */
+@media (max-width: 768px) {
+  .mobile-menu-button {
+    display: flex;
+  }
+  
+  .nav-links {
+    position: fixed;
+    top: 60px;
+    right: -100%;
+    width: 70%;
+    height: calc(100vh - 60px);
+    background-color: #2a2a2a;
+    flex-direction: column;
+    padding: 20px;
+    transition: right 0.3s ease;
+    z-index: 99;
+  }
+  
+  .nav-links.mobile-open {
+    right: 0;
+  }
+  
+  .nav-link {
+    padding: 15px 0;
+    width: 100%;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
 }
 
 * {

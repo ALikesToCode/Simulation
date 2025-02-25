@@ -1,26 +1,42 @@
 import { defineStore } from 'pinia'
 import * as THREE from 'three'
 import { useRuntimeConfig } from '#app'
+import { NavigationService } from '~/services/NavigationService'
 
 interface BuildingData {
   id: string
-  geometry: THREE.BufferGeometry
-  height: number
+  position: {
+    x: number
+    y: number
+    z: number
+  }
+  dimensions: {
+    width: number
+    height: number
+    depth: number
+  }
   type: string
-  properties: Record<string, any>
-  source?: string
+  color: string
+  name?: string
 }
 
 interface RoadData {
   id: string
-  path: { x: number; y: number; z: number }[]
+  path: {
+    x: number
+    y: number
+    z: number
+  }[]
   width: number
   type: string
+  name?: string
 }
 
 interface CityData {
   buildings: BuildingData[]
   roads: RoadData[]
+  pois: any[]
+  center?: { lat: number, lng: number }
 }
 
 interface Agent {
@@ -44,6 +60,12 @@ interface Agent {
       reasoning: string[]
       confidence: number
     }
+    thoughts: {
+      timestamp: number
+      content: string
+    }[]
+    isHighlighted: boolean
+    pathVisible: boolean
   }
 }
 
@@ -65,7 +87,8 @@ export const useSimulationStore = defineStore('simulation', {
     isRunning: false,
     cityData: {
       buildings: [],
-      roads: []
+      roads: [],
+      pois: []
     },
     stats: {
       blueAgentsSuccess: 0,
@@ -99,7 +122,10 @@ export const useSimulationStore = defineStore('simulation', {
           lastDecision: {
             reasoning: [] as string[],
             confidence: 1
-          }
+          },
+          thoughts: [] as { timestamp: number, content: string }[],
+          isHighlighted: false,
+          pathVisible: false
         }
       }))
 
@@ -122,7 +148,10 @@ export const useSimulationStore = defineStore('simulation', {
           lastDecision: {
             reasoning: [] as string[],
             confidence: 1
-          }
+          },
+          thoughts: [] as { timestamp: number, content: string }[],
+          isHighlighted: false,
+          pathVisible: false
         }
       }))
 
@@ -130,156 +159,116 @@ export const useSimulationStore = defineStore('simulation', {
     },
 
     async initializeSimulation() {
-      const config = useRuntimeConfig()
-      const { cityCenterLat, cityCenterLng, radius } = config.public.simulationSettings
-      
       try {
-        // Load city data from multiple sources in parallel
-        const [osmData, nycData, googleData] = await Promise.all([
-          // OpenStreetMap data
-          fetch('/api/city/data', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              center: [cityCenterLat, cityCenterLng],
-              radius,
-              source: 'osm'
-            })
-          }).then(res => res.json()),
-
-          // NYC Open Data
-          fetch('https://data.cityofnewyork.us/resource/nqwf-w8eh.json', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-App-Token': config.public.nycOpenDataToken || ''
-            }
-          }).then(res => res.json()).catch(() => ({ features: [] })),
-
-          // Google Maps data
-          fetch('/api/city/google-data', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              center: [cityCenterLat, cityCenterLng],
-              radius
-            })
-          }).then(res => res.json()).catch(() => ({ buildings: [], roads: [] }))
-        ])
-
-        // Process building geometries with performance optimizations
-        const processBuilding = (building: Record<string, any>, source: string): BuildingData | null => {
-          try {
-            let geometry: THREE.BufferGeometry
-            let height = building.height || 10
-
-            if (source === 'osm') {
-              // Process OpenStreetMap building
-              const shape = new THREE.Shape()
-              const coordinates = building.nodes?.map((node: { lon: number; lat: number }) => 
-                new THREE.Vector2(
-                  (node.lon - cityCenterLng) * 111000,
-                  (node.lat - cityCenterLat) * 111000
-                )
-              ) || []
-
-              if (coordinates.length >= 3) {
-                shape.moveTo(coordinates[0].x, coordinates[0].y)
-                coordinates.slice(1).forEach((coord: THREE.Vector2) => shape.lineTo(coord.x, coord.y))
-                shape.closePath()
-                geometry = new THREE.ExtrudeGeometry(shape, {
-                  depth: height,
-                  bevelEnabled: false
-                })
-              } else {
-                geometry = new THREE.BoxGeometry(10, height, 10)
-              }
-            } else if (source === 'nyc') {
-              // Process NYC Open Data building
-              const shape = new THREE.Shape()
-              const coordinates = building.the_geom?.coordinates?.[0]?.map((coord: number[]) =>
-                new THREE.Vector2(
-                  (coord[0] - cityCenterLng) * 111000,
-                  (coord[1] - cityCenterLat) * 111000
-                )
-              ) || []
-
-              if (coordinates.length >= 3) {
-                shape.moveTo(coordinates[0].x, coordinates[0].y)
-                coordinates.slice(1).forEach((coord: THREE.Vector2) => shape.lineTo(coord.x, coord.y))
-                shape.closePath()
-                height = building.heightroof || building.heightroof_median || 10
-                geometry = new THREE.ExtrudeGeometry(shape, {
-                  depth: height,
-                  bevelEnabled: false
-                })
-              } else {
-                geometry = new THREE.BoxGeometry(10, height, 10)
-              }
-            } else {
-              // Default or Google Maps building
-              geometry = new THREE.BoxGeometry(
-                building.width || 10,
-                height,
-                building.depth || 10
-              )
-            }
-
-            // Apply performance optimizations
-            geometry.computeBoundingSphere()
-            geometry.computeVertexNormals()
-            
-            return {
-              id: building.id || Math.random().toString(36).substr(2),
-              geometry,
-              height,
-              type: building.type || 'building',
-              properties: building.properties || {},
-              source
-            }
-          } catch (error) {
-            console.error('Error processing building:', error)
-            return null
-          }
+        // Check if we already have city data
+        if (this.cityData && this.cityData.buildings && this.cityData.buildings.length > 0) {
+          console.log('Simulation already initialized with city data')
+          return
         }
-
-        // Process buildings from all sources
-        const buildings = (await Promise.all([
-          ...osmData.buildings.map((b: Record<string, any>) => processBuilding(b, 'osm')),
-          ...nycData.features.map((b: Record<string, any>) => processBuilding(b, 'nyc')),
-          ...googleData.buildings.map((b: Record<string, any>) => processBuilding(b, 'google'))
-        ])).filter((b): b is BuildingData => b !== null)
-
-        // Process roads with performance optimizations
-        const roads = [...osmData.roads, ...googleData.roads].map((road: Record<string, any>): RoadData | null => {
-          try {
-            return {
-              id: road.id,
-              path: road.path.map((point: Record<string, any>) => ({
-                x: (point.lon || point.x - cityCenterLng) * 111000,
-                y: point.y || 0,
-                z: (point.lat || point.z - cityCenterLat) * 111000
-              })),
-              width: road.width || 4,
-              type: road.type || 'road'
-            }
-          } catch (error) {
-            console.error('Error processing road:', error)
-            return null
-          }
-        }).filter((r): r is RoadData => r !== null)
-
-        this.cityData = {
-          buildings: buildings.slice(0, config.public.performanceSettings.maxVisibleBuildings),
-          roads
+        
+        const config = useRuntimeConfig()
+        const cityCenter = {
+          lat: config.public.simulationSettings.cityCenterLat,
+          lng: config.public.simulationSettings.cityCenterLng
         }
-
-        // Initialize agents
-        this.initializeAgents()
+        
+        // Fetch city data from the API
+        const response = await fetch('/api/city/google-data', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            center: cityCenter,
+            radius: config.public.simulationSettings.radius
+          })
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch city data: ${response.statusText}`)
+        }
+        
+        const data = await response.json()
+        this.cityData = data
+        
+        console.log('Simulation initialized with city data:', data)
+        return data
       } catch (error) {
         console.error('Failed to initialize simulation:', error)
-        throw error
+        // Create some default city data if the API call fails
+        this.createDefaultCityData()
+        return this.cityData
       }
+    },
+
+    createDefaultCityData() {
+      const config = useRuntimeConfig()
+      const centerLat = config.public.simulationSettings.cityCenterLat
+      const centerLng = config.public.simulationSettings.cityCenterLng
+      
+      // Create a simple grid of buildings
+      const buildings: BuildingData[] = []
+      const gridSize = 5
+      const spacing = 50
+      
+      for (let i = -gridSize; i <= gridSize; i++) {
+        for (let j = -gridSize; j <= gridSize; j++) {
+          // Skip some buildings to create roads
+          if (i === 0 || j === 0) continue
+          
+          const building: BuildingData = {
+            id: `building_${buildings.length}`,
+            name: `Building ${buildings.length}`,
+            position: {
+              x: i * spacing,
+              y: 0,
+              z: j * spacing
+            },
+            dimensions: {
+              width: 20 + Math.random() * 20,
+              height: 20 + Math.random() * 40,
+              depth: 20 + Math.random() * 20
+            },
+            type: Math.random() > 0.7 ? 'commercial' : 'residential',
+            color: Math.random() > 0.5 ? '#8899AA' : '#99AABB'
+          }
+          
+          buildings.push(building)
+        }
+      }
+      
+      // Create some roads
+      const roads: RoadData[] = [
+        {
+          id: 'road_0',
+          name: 'Main Street',
+          path: [
+            { x: -gridSize * spacing, y: 0, z: 0 },
+            { x: gridSize * spacing, y: 0, z: 0 }
+          ],
+          width: 10,
+          type: 'road'
+        },
+        {
+          id: 'road_1',
+          name: 'Cross Street',
+          path: [
+            { x: 0, y: 0, z: -gridSize * spacing },
+            { x: 0, y: 0, z: gridSize * spacing }
+          ],
+          width: 10,
+          type: 'road'
+        }
+      ]
+      
+      this.cityData = {
+        center: { lat: centerLat, lng: centerLng },
+        buildings,
+        roads,
+        pois: []
+      }
+      
+      console.log('Created default city data')
     },
 
     startSimulation() {
@@ -426,6 +415,121 @@ export const useSimulationStore = defineStore('simulation', {
             Math.max(Object.keys(agent.state.knowledge.trustScores).length, 1), 0) /
           this.agents.length
       }
+    },
+
+    updateAgentPosition(agentId: string, position: THREE.Vector3) {
+      const agent = this.agents.find(a => a.id === agentId)
+      if (!agent) return
+      
+      // Update the agent's position
+      agent.position.copy(position)
+      
+      // Reset the path since we're directly setting the position
+      agent.state.path = []
+      agent.state.pathIndex = 0
+    },
+    
+    navigateAgentTo(agentId: string, targetPosition: THREE.Vector3) {
+      const agent = this.agents.find(a => a.id === agentId)
+      if (!agent) return
+      
+      // Set the target position
+      agent.target.copy(targetPosition)
+      
+      // Calculate path using the navigation service
+      const navigationService = new NavigationService(
+        new THREE.Vector2(5000, 5000), // World size
+        5 // Grid size
+      )
+      
+      // Build navigation mesh if needed
+      if (this.cityData && this.cityData.roads && this.cityData.buildings) {
+        navigationService.buildNavigationMesh(this.cityData.roads, this.cityData.buildings)
+        
+        // Find path
+        const path = navigationService.findPath(agent.position, targetPosition, agent.type)
+        
+        // Update agent's path
+        agent.state.path = path
+        agent.state.pathIndex = 0
+        agent.state.currentTask = 'navigating'
+      }
+    },
+    
+    resetSimulation() {
+      // Reset agents to initial positions
+      this.agents.forEach(agent => {
+        agent.position = new THREE.Vector3(
+          Math.random() * 1000 - 500,
+          0,
+          Math.random() * 1000 - 500
+        )
+        agent.target = new THREE.Vector3().copy(agent.position)
+        agent.state.path = []
+        agent.state.pathIndex = 0
+        agent.state.currentTask = 'exploring'
+        agent.state.knowledge.visitedLocations = []
+        agent.state.knowledge.knownAgents = []
+        agent.state.knowledge.trustScores = {}
+        agent.state.lastInteractionTime = 0
+      })
+      
+      // Reset stats
+      this.stats.blueAgentsSuccess = 0
+      this.stats.redAgentsSuccess = 0
+      this.stats.totalInteractions = 0
+      this.stats.averageTrustScore = 0
+      
+      // Pause simulation
+      this.isRunning = false
+    },
+
+    // Add a thought to an agent's chain of thoughts
+    addAgentThought(agentId: string, content: string) {
+      const agent = this.agents.find(a => a.id === agentId)
+      if (!agent) return
+      
+      agent.state.thoughts.push({
+        timestamp: Date.now(),
+        content
+      })
+      
+      // Limit the number of thoughts to keep memory usage reasonable
+      if (agent.state.thoughts.length > 50) {
+        agent.state.thoughts.shift() // Remove oldest thought
+      }
+    },
+    
+    // Highlight or unhighlight an agent
+    toggleAgentHighlight(agentId: string, highlight?: boolean) {
+      const agent = this.agents.find(a => a.id === agentId)
+      if (!agent) return
+      
+      if (highlight !== undefined) {
+        agent.state.isHighlighted = highlight
+      } else {
+        agent.state.isHighlighted = !agent.state.isHighlighted
+      }
+    },
+    
+    // Toggle the visibility of an agent's path
+    toggleAgentPath(agentId: string, visible?: boolean) {
+      const agent = this.agents.find(a => a.id === agentId)
+      if (!agent) return
+      
+      if (visible !== undefined) {
+        agent.state.pathVisible = visible
+      } else {
+        agent.state.pathVisible = !agent.state.pathVisible
+      }
+    },
+    
+    // Reset all highlights and path visibility
+    resetAllHighlightsAndPaths() {
+      this.agents.forEach(agent => {
+        agent.state.isHighlighted = false
+        agent.state.pathVisible = false
+      })
     }
   }
 }) 

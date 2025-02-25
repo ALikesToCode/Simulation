@@ -1,24 +1,48 @@
 <template>
   <div class="map-container">
     <div ref="mapContainer" class="map"></div>
-    <div class="controls">
+    <button @click="toggleControls" class="controls-toggle">
+      {{ controlsVisible ? '✕' : '⚙️' }}
+    </button>
+    <div class="controls" :class="{ 'controls-hidden': !controlsVisible }">
+      <div class="controls-header">Map Controls</div>
+      <button @click="togglePhotoRealistic" class="control-button photo-realistic-button">
+        {{ isPhotoRealistic ? 'Standard View' : 'Photorealistic 3D' }}
+      </button>
       <button @click="toggleTilt" class="control-button">
         {{ is3DMode ? 'Switch to 2D' : 'Switch to 3D' }}
       </button>
       <button @click="rotateMap" class="control-button" v-if="is3DMode">
         Rotate Map
       </button>
-      <button @click="toggleBuildingLayer" class="control-button">
+      <button @click="toggleBuildingLayer" class="control-button" v-if="!isPhotoRealistic">
         {{ buildingsVisible ? 'Hide Buildings' : 'Show Buildings' }}
       </button>
-      <button @click="toggleTerrainLayer" class="control-button">
+      <button @click="toggleTerrainLayer" class="control-button" v-if="!isPhotoRealistic">
         {{ terrainVisible ? 'Hide Terrain' : 'Show Terrain' }}
+      </button>
+      <button @click="toggleAgentMarkers" class="control-button">
+        {{ agentsVisible ? 'Hide Agents' : 'Show Agents' }}
+      </button>
+      <button @click="toggleFirstPersonView" class="control-button first-person-button">
+        {{ isFirstPerson ? 'Exit First Person' : 'Enter First Person' }}
       </button>
       <div class="tilt-control" v-if="is3DMode">
         <label>Tilt: {{ currentTilt }}°</label>
         <input type="range" min="0" max="60" step="5" v-model="currentTilt" @input="setTiltAngle" />
       </div>
+      <div class="zoom-control">
+        <label>Zoom: {{ currentZoom }}</label>
+        <input type="range" min="15" max="22" step="1" v-model="currentZoom" @input="setZoomLevel" />
+      </div>
     </div>
+    
+    <!-- Player Avatar Component -->
+    <PlayerAvatar 
+      ref="playerAvatarRef"
+      :map="map" 
+      @position-update="onPlayerPositionUpdate" 
+    />
   </div>
 </template>
 
@@ -26,17 +50,50 @@
 /// <reference path="../types/google-maps.d.ts" />
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRuntimeConfig } from '#app'
+import { storeToRefs } from 'pinia'
+import { useSimulationStore } from '~/stores/simulation'
+import PlayerAvatar from './PlayerAvatar.vue'
 
 const mapContainer = ref<HTMLDivElement | null>(null)
 const map = ref<google.maps.Map | null>(null)
 const is3DMode = ref(false)
 const buildingsVisible = ref(true)
 const terrainVisible = ref(false)
+const agentsVisible = ref(true)
 const currentTilt = ref(0)
+const currentZoom = ref(18)
+const controlsVisible = ref(window.innerWidth > 768)
+const isFirstPerson = ref(false)
+const isPhotoRealistic = ref(false)
+const playerAvatarRef = ref<InstanceType<typeof PlayerAvatar> | null>(null)
 const config = useRuntimeConfig()
+const mapInitialized = ref(false)
+
+// Get agents from the simulation store
+const simulationStore = useSimulationStore()
+const { agents } = storeToRefs(simulationStore)
 
 // Map layers
 let buildingLayer: google.maps.WebGLOverlayView | null = null
+
+// Agent markers
+const agentMarkers = new Map<string, google.maps.marker.AdvancedMarkerElement | google.maps.Marker>()
+
+// Define events
+const emit = defineEmits<{
+  (e: 'map-click', event: google.maps.MapMouseEvent): void
+}>()
+
+// Toggle controls visibility
+const toggleControls = () => {
+  controlsVisible.value = !controlsVisible.value
+}
+
+// Define global callback for Google Maps API
+if (typeof window !== 'undefined') {
+  // Remove the global initMap function since we're not using the callback parameter anymore
+  // Instead, we'll check if the API is loaded in onMounted
+}
 
 // Function to initialize the map
 const initMap = () => {
@@ -47,20 +104,31 @@ const initMap = () => {
       lat: config.public.simulationSettings.cityCenterLat, 
       lng: config.public.simulationSettings.cityCenterLng 
     },
-    zoom: 18,
+    zoom: currentZoom.value,
     mapTypeId: 'roadmap',
-    mapTypeControl: true,
+    mapTypeControl: false,
     streetViewControl: true,
     fullscreenControl: true,
-    mapId: 'YOUR_MAP_ID' // Optional: If you have a custom map style
+    zoomControl: true,
+    // Use a default map ID for standard view
+    mapId: '8e0a97af9386fef'
   }
   
   map.value = new google.maps.Map(mapContainer.value, mapOptions)
   
   // Add event listener for when the map is idle (fully loaded)
   google.maps.event.addListenerOnce(map.value, 'idle', () => {
-    console.log('Map loaded successfully')
     initBuildingLayer()
+    initMapClickListener()
+  })
+}
+
+// Initialize map click listener
+const initMapClickListener = () => {
+  if (!map.value) return
+  
+  map.value.addListener('click', (event: google.maps.MapMouseEvent) => {
+    emit('map-click', event)
   })
 }
 
@@ -69,7 +137,7 @@ const initBuildingLayer = () => {
   if (!map.value) return
   
   // Enable the buildings layer by default
-  if (buildingsVisible.value) {
+  if (buildingsVisible.value && !isPhotoRealistic.value) {
     map.value.setOptions({
       mapTypeId: google.maps.MapTypeId.SATELLITE
     })
@@ -87,6 +155,50 @@ const initBuildingLayer = () => {
   }
 }
 
+// Toggle between photorealistic and standard view
+const togglePhotoRealistic = () => {
+  if (!map.value) return
+  
+  isPhotoRealistic.value = !isPhotoRealistic.value
+  
+  try {
+    if (isPhotoRealistic.value) {
+      // Enable photorealistic 3D view
+      map.value.setOptions({
+        // Use the photorealistic map ID
+        mapId: '6ff586e93e18149e', // Photorealistic map ID
+        tilt: 45
+      })
+      
+      // Set 3D mode when in photorealistic view
+      is3DMode.value = true
+      currentTilt.value = 45
+      
+      // Disable building layer as it's included in photorealistic view
+      if (buildingLayer) {
+        buildingLayer.setMap(null)
+      }
+    } else {
+      // Return to standard view
+      map.value.setOptions({
+        mapId: '8e0a97af9386fef', // Standard map ID
+        mapTypeId: buildingsVisible.value ? google.maps.MapTypeId.SATELLITE : 
+                  terrainVisible.value ? google.maps.MapTypeId.TERRAIN : 
+                  google.maps.MapTypeId.ROADMAP
+      })
+      
+      // Restore building layer if it was visible
+      if (buildingsVisible.value && buildingLayer) {
+        buildingLayer.setMap(map.value)
+      }
+    }
+  } catch (error) {
+    console.error('Error toggling photorealistic view:', error)
+    // Revert the state if there was an error
+    isPhotoRealistic.value = !isPhotoRealistic.value
+  }
+}
+
 // Function to toggle between 2D and 3D views
 const toggleTilt = () => {
   if (!map.value) return
@@ -98,15 +210,17 @@ const toggleTilt = () => {
     currentTilt.value = 45
     map.value.setTilt(currentTilt.value)
     
-    // Switch to satellite view for better 3D visualization
-    map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE)
+    // Switch to satellite view for better 3D visualization if not in photorealistic mode
+    if (!isPhotoRealistic.value) {
+      map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE)
+    }
   } else {
     // Switch back to 2D mode
     currentTilt.value = 0
     map.value.setTilt(0)
     
-    // Optionally switch back to roadmap view
-    if (!buildingsVisible.value) {
+    // Optionally switch back to roadmap view if not in photorealistic mode
+    if (!isPhotoRealistic.value && !buildingsVisible.value) {
       map.value.setMapTypeId(google.maps.MapTypeId.ROADMAP)
     }
   }
@@ -116,6 +230,12 @@ const toggleTilt = () => {
 const setTiltAngle = () => {
   if (!map.value || !is3DMode.value) return
   map.value.setTilt(currentTilt.value)
+}
+
+// Function to set zoom level
+const setZoomLevel = () => {
+  if (!map.value) return
+  map.value.setZoom(Number(currentZoom.value))
 }
 
 // Function to rotate the map (only works in 3D mode)
@@ -129,9 +249,23 @@ const rotateMap = () => {
   map.value.setHeading((currentHeading + 45) % 360)
 }
 
+// Toggle first-person view
+const toggleFirstPersonView = () => {
+  isFirstPerson.value = !isFirstPerson.value
+  
+  if (playerAvatarRef.value) {
+    playerAvatarRef.value.toggleFirstPersonView()
+  }
+}
+
+// Handle player position updates
+const onPlayerPositionUpdate = (position: { lat: number, lng: number }) => {
+  // Position update handling without logging
+}
+
 // Toggle building layer
 const toggleBuildingLayer = () => {
-  if (!map.value) return
+  if (!map.value || isPhotoRealistic.value) return
   
   buildingsVisible.value = !buildingsVisible.value
   
@@ -154,7 +288,7 @@ const toggleBuildingLayer = () => {
 
 // Toggle terrain layer
 const toggleTerrainLayer = () => {
-  if (!map.value) return
+  if (!map.value || isPhotoRealistic.value) return
   
   terrainVisible.value = !terrainVisible.value
   
@@ -171,7 +305,163 @@ const toggleTerrainLayer = () => {
   }
 }
 
-// Load Google Maps API dynamically
+// Toggle agent markers
+const toggleAgentMarkers = () => {
+  agentsVisible.value = !agentsVisible.value
+  
+  // Update marker visibility
+  updateAgentMarkers()
+}
+
+// Convert world coordinates to LatLng
+const worldToLatLng = (position: THREE.Vector3): google.maps.LatLng => {
+  const centerLat = config.public.simulationSettings.cityCenterLat
+  const centerLng = config.public.simulationSettings.cityCenterLng
+  
+  // Convert from world units to lat/lng (approximate conversion)
+  const lat = centerLat + (position.z / 111000)
+  const lng = centerLng + (position.x / (111000 * Math.cos(centerLat * Math.PI / 180)))
+  
+  return new google.maps.LatLng(lat, lng)
+}
+
+// Update agent markers on the map
+const updateAgentMarkers = () => {
+  if (!map.value) return
+  
+  // Remove old markers
+  const currentIds = new Set(agents.value.map(a => a.id))
+  for (const [id, marker] of agentMarkers) {
+    if (!currentIds.has(id)) {
+      try {
+        if (marker instanceof google.maps.marker?.AdvancedMarkerElement) {
+          marker.map = null
+        } else if (marker instanceof google.maps.Marker) {
+          marker.setMap(null)
+        }
+      } catch (error) {
+        console.error('Error removing marker:', error)
+      }
+      agentMarkers.delete(id)
+    }
+  }
+  
+  // Skip if agents are not visible
+  if (!agentsVisible.value) {
+    for (const marker of agentMarkers.values()) {
+      try {
+        if (marker instanceof google.maps.marker?.AdvancedMarkerElement) {
+          marker.map = null
+        } else if (marker instanceof google.maps.Marker) {
+          marker.setMap(null)
+        }
+      } catch (error) {
+        console.error('Error hiding marker:', error)
+      }
+    }
+    return
+  }
+  
+  // Update or create new markers
+  for (const agent of agents.value) {
+    const latLng = worldToLatLng(agent.position)
+    let marker = agentMarkers.get(agent.id)
+    
+    if (!marker) {
+      try {
+        // Check if AdvancedMarkerElement is available
+        if (google.maps.marker?.AdvancedMarkerElement) {
+          // Create marker content
+          const markerContent = document.createElement('div');
+          markerContent.className = 'agent-marker';
+          markerContent.style.width = '16px';
+          markerContent.style.height = '16px';
+          markerContent.style.borderRadius = '50%';
+          markerContent.style.backgroundColor = agent.type === 'blue' ? '#4444ff' : '#ff4444';
+          markerContent.style.border = '2px solid white';
+          markerContent.style.display = 'flex';
+          markerContent.style.alignItems = 'center';
+          markerContent.style.justifyContent = 'center';
+          
+          // Add label
+          const label = document.createElement('span');
+          label.textContent = agent.id.split('_')[1] || '';
+          label.style.color = 'white';
+          label.style.fontSize = '10px';
+          markerContent.appendChild(label);
+          
+          // Create advanced marker
+          const advancedMarker = new google.maps.marker.AdvancedMarkerElement({
+            position: latLng,
+            map: map.value,
+            title: agent.id,
+            content: markerContent
+          });
+          
+          // Add click listener
+          advancedMarker.addListener('click', () => {
+            const customEvent = {
+              latLng: latLng
+            } as google.maps.MapMouseEvent;
+            
+            emit('map-click', customEvent);
+          });
+          
+          agentMarkers.set(agent.id, advancedMarker);
+        } else {
+          // Fallback to regular marker
+          marker = new google.maps.Marker({
+            position: latLng,
+            map: map.value,
+            title: agent.id,
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              fillColor: agent.type === 'blue' ? '#4444ff' : '#ff4444',
+              fillOpacity: 0.8,
+              strokeColor: 'white',
+              strokeWeight: 2,
+              scale: 8
+            },
+            label: {
+              text: agent.id.split('_')[1] || '',
+              color: 'white',
+              fontSize: '10px'
+            },
+            optimized: true
+          })
+          
+          // Add click listener to marker
+          marker.addListener('click', () => {
+            const customEvent = {
+              latLng: marker instanceof google.maps.Marker ? marker.getPosition() : latLng
+            } as google.maps.MapMouseEvent
+            
+            emit('map-click', customEvent)
+          })
+          
+          agentMarkers.set(agent.id, marker)
+        }
+      } catch (error) {
+        console.error('Error creating marker for agent:', agent.id, error)
+      }
+    } else {
+      // Update existing marker
+      try {
+        if (marker instanceof google.maps.marker?.AdvancedMarkerElement) {
+          marker.position = latLng;
+          marker.map = map.value;
+        } else if (marker instanceof google.maps.Marker) {
+          marker.setPosition(latLng);
+          marker.setMap(map.value);
+        }
+      } catch (error) {
+        console.error('Error updating marker position:', error)
+      }
+    }
+  }
+}
+
+// Load Google Maps API dynamically if not already loaded by Nuxt
 const loadGoogleMapsScript = () => {
   return new Promise<void>((resolve, reject) => {
     // Check if Google Maps API is already loaded
@@ -187,14 +477,8 @@ const loadGoogleMapsScript = () => {
     }
     
     const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry,visualization&v=weekly&callback=initGoogleMaps`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry,visualization&v=beta&callback=initMap`
     script.async = true
-    script.defer = true
-    
-    // Define global callback function
-    window.initGoogleMaps = () => {
-      resolve()
-    }
     
     script.onerror = () => {
       reject(new Error('Failed to load Google Maps API'))
@@ -211,10 +495,40 @@ watch(currentTilt, (newTilt) => {
   }
 })
 
+// Watch for zoom changes
+watch(currentZoom, (newZoom) => {
+  if (map.value) {
+    map.value.setZoom(Number(newZoom))
+  }
+})
+
+// Watch for agent changes
+watch(agents, () => {
+  updateAgentMarkers()
+}, { deep: true })
+
 onMounted(async () => {
   try {
-    await loadGoogleMapsScript()
-    initMap()
+    // Check if Google Maps API is loaded
+    if (typeof google !== 'undefined' && google.maps) {
+      // API is already loaded, initialize the map
+      initMap()
+      mapInitialized.value = true
+    } else {
+      // API is not loaded yet, wait for it
+      const checkGoogleMapsLoaded = () => {
+        if (typeof google !== 'undefined' && google.maps) {
+          // API is now loaded
+          initMap()
+          mapInitialized.value = true
+        } else {
+          // Check again in 100ms
+          setTimeout(checkGoogleMapsLoaded, 100)
+        }
+      }
+      
+      checkGoogleMapsLoaded()
+    }
   } catch (error) {
     console.error('Error initializing Google Maps:', error)
   }
@@ -230,6 +544,16 @@ onBeforeUnmount(() => {
   if (buildingLayer) {
     buildingLayer.setMap(null)
   }
+  
+  // Clean up markers
+  for (const marker of agentMarkers.values()) {
+    if (marker instanceof google.maps.marker.AdvancedMarkerElement) {
+      marker.map = null
+    } else {
+      marker.setMap(null)
+    }
+  }
+  agentMarkers.clear()
 })
 
 // Expose map instance and methods for parent components
@@ -238,20 +562,38 @@ defineExpose({
   is3DMode,
   buildingsVisible,
   terrainVisible,
+  agentsVisible,
   currentTilt,
+  currentZoom,
+  controlsVisible,
+  isFirstPerson,
+  isPhotoRealistic,
   toggleTilt,
   rotateMap,
   toggleBuildingLayer,
   toggleTerrainLayer,
-  setTiltAngle
+  toggleAgentMarkers,
+  toggleControls,
+  toggleFirstPersonView,
+  togglePhotoRealistic,
+  setTiltAngle,
+  setZoomLevel,
+  worldToLatLng
 })
+
+// Add to the interface declaration
+declare global {
+  interface Window {
+    initMap: () => void;
+  }
+}
 </script>
 
 <style scoped>
 .map-container {
+  position: relative;
   width: 100%;
   height: 100%;
-  position: relative;
 }
 
 .map {
@@ -259,47 +601,137 @@ defineExpose({
   height: 100%;
 }
 
-.controls {
+.controls-toggle {
   position: absolute;
   top: 10px;
-  left: 10px;
-  z-index: 1;
+  right: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: rgba(42, 42, 42, 0.9);
+  color: white;
+  border: none;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.controls {
+  position: absolute;
+  top: 60px;
+  right: 10px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background-color: rgba(255, 255, 255, 0.8);
+  z-index: 1;
+  background-color: rgba(42, 42, 42, 0.9);
+  border-radius: 8px;
   padding: 10px;
-  border-radius: 4px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  max-width: 200px;
+}
+
+.controls-hidden {
+  transform: translateX(220px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.controls-header {
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: white;
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .control-button {
-  background-color: white;
-  border: 1px solid #ccc;
+  background-color: rgba(68, 68, 68, 0.8);
+  color: white;
+  border: none;
   border-radius: 4px;
   padding: 8px 12px;
-  font-size: 14px;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  transition: background-color 0.3s;
+  font-size: 14px;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .control-button:hover {
-  background-color: #f0f0f0;
+  background-color: rgba(85, 85, 85, 0.9);
 }
 
-.tilt-control {
-  margin-top: 10px;
+.first-person-button {
+  background-color: rgba(66, 133, 244, 0.8);
+}
+
+.first-person-button:hover {
+  background-color: rgba(66, 133, 244, 0.9);
+}
+
+.photo-realistic-button {
+  background-color: rgba(76, 175, 80, 0.8);
+}
+
+.photo-realistic-button:hover {
+  background-color: rgba(76, 175, 80, 0.9);
+}
+
+.tilt-control, .zoom-control {
+  background-color: rgba(68, 68, 68, 0.8);
+  color: white;
+  border-radius: 4px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
-.tilt-control label {
+.tilt-control label, .zoom-control label {
   font-size: 14px;
 }
 
-.tilt-control input {
+.tilt-control input, .zoom-control input {
   width: 100%;
+}
+
+/* Media queries for responsive design */
+@media (max-width: 768px) {
+  .controls {
+    max-width: 180px;
+  }
+  
+  .control-button {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .controls-toggle {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+  
+  .controls {
+    top: 56px;
+    max-width: 160px;
+    padding: 8px;
+  }
+  
+  .control-button {
+    font-size: 11px;
+    padding: 5px 8px;
+  }
 }
 </style> 
