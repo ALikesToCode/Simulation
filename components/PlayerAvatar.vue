@@ -68,7 +68,7 @@ const initializePlayerMarker = () => {
   playerPosition.value = center
 
   // Check if AdvancedMarkerElement is available
-  if (google.maps.marker?.AdvancedMarkerElement) {
+  if (google.maps.marker && google.maps.marker.AdvancedMarkerElement) {
     try {
       // Create marker content
       const markerContent = document.createElement('div')
@@ -119,6 +119,8 @@ const initializePlayerMarker = () => {
 // Create a fallback standard marker
 const createFallbackMarker = () => {
   if (!props.map || !playerPosition.value) return
+  
+  console.warn('Falling back to deprecated google.maps.Marker for player avatar. Consider updating your Google Maps API version.')
   
   // Fallback to regular marker
   playerMarker.value = new google.maps.Marker({
@@ -218,7 +220,7 @@ const updatePlayerPosition = () => {
   if (playerMarker.value && (positionChanged.value || headingChanged)) {
     try {
       if (positionChanged.value) {
-        if (playerMarker.value instanceof google.maps.marker?.AdvancedMarkerElement) {
+        if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && playerMarker.value instanceof google.maps.marker.AdvancedMarkerElement) {
           playerMarker.value.position = playerPosition.value
         } else if (playerMarker.value instanceof google.maps.Marker) {
           playerMarker.value.setPosition(playerPosition.value)
@@ -227,7 +229,7 @@ const updatePlayerPosition = () => {
       
       if (headingChanged) {
         // Update the rotation based on marker type
-        if (playerMarker.value instanceof google.maps.marker?.AdvancedMarkerElement) {
+        if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && playerMarker.value instanceof google.maps.marker.AdvancedMarkerElement) {
           // Update rotation for advanced marker
           if (playerMarker.value.content) {
             const content = playerMarker.value.content as HTMLElement;
@@ -300,6 +302,22 @@ const toggleFirstPersonView = () => {
   }
 }
 
+// Update map reference
+const updateMapReference = (newMap: google.maps.Map | null) => {
+  if (newMap && playerMarker.value) {
+    try {
+      if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && 
+          playerMarker.value instanceof google.maps.marker.AdvancedMarkerElement) {
+        playerMarker.value.map = newMap;
+      } else if (playerMarker.value instanceof google.maps.Marker) {
+        playerMarker.value.setMap(newMap);
+      }
+    } catch (error) {
+      console.error('Error updating player marker map reference:', error);
+    }
+  }
+}
+
 // Watch for map changes
 watch(() => props.map, (newMap) => {
   if (newMap) {
@@ -329,11 +347,13 @@ onBeforeUnmount(() => {
   
   if (playerMarker.value) {
     try {
-      if (typeof google !== 'undefined' && google.maps && google.maps.marker && 
-          playerMarker.value instanceof google.maps.marker.AdvancedMarkerElement) {
-        playerMarker.value.map = null
-      } else if (playerMarker.value instanceof google.maps.Marker) {
-        playerMarker.value.setMap(null)
+      if (typeof google !== 'undefined' && google.maps) {
+        if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && 
+            playerMarker.value instanceof google.maps.marker.AdvancedMarkerElement) {
+          playerMarker.value.map = null
+        } else if (playerMarker.value instanceof google.maps.Marker) {
+          playerMarker.value.setMap(null)
+        }
       }
     } catch (error) {
       console.error('Error cleaning up player marker:', error)
@@ -346,7 +366,8 @@ onBeforeUnmount(() => {
 defineExpose({
   toggleFirstPersonView,
   playerPosition,
-  playerHeading
+  playerHeading,
+  updateMapReference
 })
 </script>
 

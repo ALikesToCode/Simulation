@@ -53,6 +53,7 @@ import { useRuntimeConfig } from '#app'
 import { storeToRefs } from 'pinia'
 import { useSimulationStore } from '~/stores/simulation'
 import PlayerAvatar from './PlayerAvatar.vue'
+import * as THREE from 'three'
 
 const mapContainer = ref<HTMLDivElement | null>(null)
 const map = ref<google.maps.Map | null>(null)
@@ -105,7 +106,6 @@ const initMap = () => {
       lng: config.public.simulationSettings.cityCenterLng 
     },
     zoom: currentZoom.value,
-    mapTypeId: 'roadmap',
     mapTypeControl: false,
     streetViewControl: true,
     fullscreenControl: true,
@@ -138,9 +138,12 @@ const initBuildingLayer = () => {
   
   // Enable the buildings layer by default
   if (buildingsVisible.value && !isPhotoRealistic.value) {
-    map.value.setOptions({
-      mapTypeId: google.maps.MapTypeId.SATELLITE
-    })
+    // When using mapId, we should avoid setting mapTypeId directly
+    // as it can conflict with the styles defined in the cloud console
+    const mapTypeId = map.value.getMapTypeId()
+    if (mapTypeId && !mapTypeId.includes('mapId')) {
+      map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE)
+    }
     
     // Enable 3D buildings
     const webglOverlayOptions = {
@@ -157,45 +160,81 @@ const initBuildingLayer = () => {
 
 // Toggle between photorealistic and standard view
 const togglePhotoRealistic = () => {
-  if (!map.value) return
+  if (!map.value || !mapContainer.value) return
   
   isPhotoRealistic.value = !isPhotoRealistic.value
   
   try {
+    // Store current position and zoom
+    const currentCenter = map.value.getCenter();
+    const currentZoom = map.value.getZoom();
+    
+    // Clear instance listeners before recreating the map
+    google.maps.event.clearInstanceListeners(map.value);
+    
+    // Create new map options
+    const mapOptions: google.maps.MapOptions = {
+      center: currentCenter,
+      zoom: currentZoom,
+      mapTypeControl: false,
+      streetViewControl: true,
+      fullscreenControl: true,
+      zoomControl: true,
+      // Set mapId based on view type
+      mapId: isPhotoRealistic.value ? '6ff586e93e18149e' : '8e0a97af9386fef'
+    };
+    
+    // If in 3D mode, set tilt
+    if (is3DMode.value) {
+      mapOptions.tilt = currentTilt.value;
+    }
+    
+    // Recreate the map with new options
+    map.value = new google.maps.Map(mapContainer.value, mapOptions);
+    
+    // Set 3D mode when in photorealistic view
     if (isPhotoRealistic.value) {
-      // Enable photorealistic 3D view
-      map.value.setOptions({
-        // Use the photorealistic map ID
-        mapId: '6ff586e93e18149e', // Photorealistic map ID
-        tilt: 45
-      })
-      
-      // Set 3D mode when in photorealistic view
-      is3DMode.value = true
-      currentTilt.value = 45
-      
-      // Disable building layer as it's included in photorealistic view
-      if (buildingLayer) {
-        buildingLayer.setMap(null)
-      }
+      is3DMode.value = true;
+      currentTilt.value = 45;
+      map.value.setTilt(45);
     } else {
-      // Return to standard view
-      map.value.setOptions({
-        mapId: '8e0a97af9386fef', // Standard map ID
-        mapTypeId: buildingsVisible.value ? google.maps.MapTypeId.SATELLITE : 
-                  terrainVisible.value ? google.maps.MapTypeId.TERRAIN : 
-                  google.maps.MapTypeId.ROADMAP
-      })
-      
-      // Restore building layer if it was visible
-      if (buildingsVisible.value && buildingLayer) {
-        buildingLayer.setMap(map.value)
+      // Set appropriate map type for standard view
+      setTimeout(() => {
+        if (map.value) {
+          if (buildingsVisible.value) {
+            map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE);
+          } else if (terrainVisible.value) {
+            map.value.setMapTypeId(google.maps.MapTypeId.TERRAIN);
+          } else {
+            map.value.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+          }
+        }
+      }, 100);
+    }
+    
+    // Reinitialize map components
+    initMapClickListener();
+    
+    // Handle building layer
+    if (!isPhotoRealistic.value && buildingsVisible.value) {
+      initBuildingLayer();
+    } else if (buildingLayer) {
+      buildingLayer.setMap(null);
+    }
+    
+    // Update agent markers with new map
+    updateAgentMarkers();
+    
+    // Update player avatar with new map
+    if (playerAvatarRef.value) {
+      if (typeof playerAvatarRef.value.updateMapReference === 'function') {
+        playerAvatarRef.value.updateMapReference(map.value);
       }
     }
   } catch (error) {
-    console.error('Error toggling photorealistic view:', error)
+    console.error('Error toggling photorealistic view:', error);
     // Revert the state if there was an error
-    isPhotoRealistic.value = !isPhotoRealistic.value
+    isPhotoRealistic.value = !isPhotoRealistic.value;
   }
 }
 
@@ -271,10 +310,15 @@ const toggleBuildingLayer = () => {
   
   if (buildingsVisible.value) {
     // Show buildings
-    map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE)
-    if (buildingLayer) {
-      buildingLayer.setMap(map.value)
-    }
+    // Use setTimeout to ensure mapId is processed first
+    setTimeout(() => {
+      if (map.value) {
+        map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE)
+        if (buildingLayer) {
+          buildingLayer.setMap(map.value)
+        }
+      }
+    }, 50)
   } else {
     // Hide buildings
     if (!terrainVisible.value) {
@@ -292,17 +336,22 @@ const toggleTerrainLayer = () => {
   
   terrainVisible.value = !terrainVisible.value
   
-  if (terrainVisible.value) {
-    // Show terrain
-    map.value.setMapTypeId(google.maps.MapTypeId.TERRAIN)
-  } else {
-    // Hide terrain
-    if (buildingsVisible.value) {
-      map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE)
+  // Use setTimeout to ensure mapId is processed first
+  setTimeout(() => {
+    if (!map.value) return
+    
+    if (terrainVisible.value) {
+      // Show terrain
+      map.value.setMapTypeId(google.maps.MapTypeId.TERRAIN)
     } else {
-      map.value.setMapTypeId(google.maps.MapTypeId.ROADMAP)
+      // Hide terrain
+      if (buildingsVisible.value) {
+        map.value.setMapTypeId(google.maps.MapTypeId.SATELLITE)
+      } else {
+        map.value.setMapTypeId(google.maps.MapTypeId.ROADMAP)
+      }
     }
-  }
+  }, 50)
 }
 
 // Toggle agent markers
@@ -334,7 +383,7 @@ const updateAgentMarkers = () => {
   for (const [id, marker] of agentMarkers) {
     if (!currentIds.has(id)) {
       try {
-        if (marker instanceof google.maps.marker?.AdvancedMarkerElement) {
+        if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && marker instanceof google.maps.marker.AdvancedMarkerElement) {
           marker.map = null
         } else if (marker instanceof google.maps.Marker) {
           marker.setMap(null)
@@ -350,7 +399,7 @@ const updateAgentMarkers = () => {
   if (!agentsVisible.value) {
     for (const marker of agentMarkers.values()) {
       try {
-        if (marker instanceof google.maps.marker?.AdvancedMarkerElement) {
+        if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && marker instanceof google.maps.marker.AdvancedMarkerElement) {
           marker.map = null
         } else if (marker instanceof google.maps.Marker) {
           marker.setMap(null)
@@ -364,100 +413,114 @@ const updateAgentMarkers = () => {
   
   // Update or create new markers
   for (const agent of agents.value) {
-    const latLng = worldToLatLng(agent.position)
-    let marker = agentMarkers.get(agent.id)
-    
-    if (!marker) {
-      try {
-        // Check if AdvancedMarkerElement is available
-        if (google.maps.marker?.AdvancedMarkerElement) {
-          // Create marker content
-          const markerContent = document.createElement('div');
-          markerContent.className = 'agent-marker';
-          markerContent.style.width = '16px';
-          markerContent.style.height = '16px';
-          markerContent.style.borderRadius = '50%';
-          markerContent.style.backgroundColor = agent.type === 'blue' ? '#4444ff' : '#ff4444';
-          markerContent.style.border = '2px solid white';
-          markerContent.style.display = 'flex';
-          markerContent.style.alignItems = 'center';
-          markerContent.style.justifyContent = 'center';
-          
-          // Add label
-          const label = document.createElement('span');
-          label.textContent = agent.id.split('_')[1] || '';
-          label.style.color = 'white';
-          label.style.fontSize = '10px';
-          markerContent.appendChild(label);
-          
-          // Create advanced marker
-          const advancedMarker = new google.maps.marker.AdvancedMarkerElement({
-            position: latLng,
-            map: map.value,
-            title: agent.id,
-            content: markerContent
-          });
-          
-          // Add click listener
-          advancedMarker.addListener('click', () => {
-            const customEvent = {
-              latLng: latLng
-            } as google.maps.MapMouseEvent;
-            
-            emit('map-click', customEvent);
-          });
-          
-          agentMarkers.set(agent.id, advancedMarker);
-        } else {
-          // Fallback to regular marker
-          marker = new google.maps.Marker({
-            position: latLng,
-            map: map.value,
-            title: agent.id,
-            icon: {
-              path: google.maps.SymbolPath.CIRCLE,
-              fillColor: agent.type === 'blue' ? '#4444ff' : '#ff4444',
-              fillOpacity: 0.8,
-              strokeColor: 'white',
-              strokeWeight: 2,
-              scale: 8
-            },
-            label: {
-              text: agent.id.split('_')[1] || '',
-              color: 'white',
-              fontSize: '10px'
-            },
-            optimized: true
-          })
-          
-          // Add click listener to marker
-          marker.addListener('click', () => {
-            const customEvent = {
-              latLng: marker instanceof google.maps.Marker ? marker.getPosition() : latLng
-            } as google.maps.MapMouseEvent
-            
-            emit('map-click', customEvent)
-          })
-          
-          agentMarkers.set(agent.id, marker)
+    try {
+      const latLng = worldToLatLng(agent.position)
+      let marker = agentMarkers.get(agent.id)
+      
+      if (!marker) {
+        createAgentMarker(agent, latLng)
+      } else {
+        // Update existing marker
+        try {
+          if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && marker instanceof google.maps.marker.AdvancedMarkerElement) {
+            marker.position = latLng;
+            marker.map = map.value;
+          } else if (marker instanceof google.maps.Marker) {
+            marker.setPosition(latLng);
+            marker.setMap(map.value);
+          }
+        } catch (error) {
+          console.error('Error updating marker position:', error)
+          // If updating fails, try recreating the marker
+          agentMarkers.delete(agent.id)
+          createAgentMarker(agent, latLng)
         }
-      } catch (error) {
-        console.error('Error creating marker for agent:', agent.id, error)
       }
-    } else {
-      // Update existing marker
-      try {
-        if (marker instanceof google.maps.marker?.AdvancedMarkerElement) {
-          marker.position = latLng;
-          marker.map = map.value;
-        } else if (marker instanceof google.maps.Marker) {
-          marker.setPosition(latLng);
-          marker.setMap(map.value);
-        }
-      } catch (error) {
-        console.error('Error updating marker position:', error)
-      }
+    } catch (error) {
+      console.error(`Error processing agent ${agent.id}:`, error)
     }
+  }
+}
+
+// Helper function to create a new agent marker
+const createAgentMarker = (agent: any, latLng: google.maps.LatLng) => {
+  try {
+    // Check if AdvancedMarkerElement is available
+    if (google.maps.marker && google.maps.marker.AdvancedMarkerElement) {
+      // Create marker content
+      const markerContent = document.createElement('div');
+      markerContent.className = 'agent-marker';
+      markerContent.style.width = '16px';
+      markerContent.style.height = '16px';
+      markerContent.style.borderRadius = '50%';
+      markerContent.style.backgroundColor = agent.type === 'blue' ? '#4444ff' : '#ff4444';
+      markerContent.style.border = '2px solid white';
+      markerContent.style.display = 'flex';
+      markerContent.style.alignItems = 'center';
+      markerContent.style.justifyContent = 'center';
+      
+      // Add label
+      const label = document.createElement('span');
+      label.textContent = agent.id.split('_')[1] || '';
+      label.style.color = 'white';
+      label.style.fontSize = '10px';
+      markerContent.appendChild(label);
+      
+      // Create advanced marker
+      const advancedMarker = new google.maps.marker.AdvancedMarkerElement({
+        position: latLng,
+        map: map.value,
+        title: agent.id,
+        content: markerContent
+      });
+      
+      // Add click listener
+      advancedMarker.addListener('click', () => {
+        const customEvent = {
+          latLng: latLng
+        } as google.maps.MapMouseEvent;
+        
+        emit('map-click', customEvent);
+      });
+      
+      agentMarkers.set(agent.id, advancedMarker);
+    } else {
+      // Fallback to regular marker
+      console.warn('Falling back to deprecated google.maps.Marker for agent markers. Consider updating your Google Maps API version.')
+      
+      const marker = new google.maps.Marker({
+        position: latLng,
+        map: map.value,
+        title: agent.id,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: agent.type === 'blue' ? '#4444ff' : '#ff4444',
+          fillOpacity: 0.8,
+          strokeColor: 'white',
+          strokeWeight: 2,
+          scale: 8
+        },
+        label: {
+          text: agent.id.split('_')[1] || '',
+          color: 'white',
+          fontSize: '10px'
+        },
+        optimized: true
+      })
+      
+      // Add click listener to marker
+      marker.addListener('click', () => {
+        const customEvent = {
+          latLng: marker.getPosition()
+        } as google.maps.MapMouseEvent
+        
+        emit('map-click', customEvent)
+      })
+      
+      agentMarkers.set(agent.id, marker)
+    }
+  } catch (error) {
+    console.error('Error creating marker for agent:', agent.id, error)
   }
 }
 
@@ -547,10 +610,15 @@ onBeforeUnmount(() => {
   
   // Clean up markers
   for (const marker of agentMarkers.values()) {
-    if (marker instanceof google.maps.marker.AdvancedMarkerElement) {
-      marker.map = null
-    } else {
-      marker.setMap(null)
+    try {
+      if (google.maps && google.maps.marker && google.maps.marker.AdvancedMarkerElement && 
+          marker instanceof google.maps.marker.AdvancedMarkerElement) {
+        marker.map = null
+      } else if (marker instanceof google.maps.Marker) {
+        marker.setMap(null)
+      }
+    } catch (error) {
+      console.error('Error cleaning up marker:', error)
     }
   }
   agentMarkers.clear()
