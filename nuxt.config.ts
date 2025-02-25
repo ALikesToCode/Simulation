@@ -44,7 +44,12 @@ export default defineNuxtConfig({
   },
 
   nitro: {
-    preset: 'node-server'
+    preset: 'vercel',
+    output: {
+      dir: 'dist',
+      serverDir: 'dist/server',
+      publicDir: 'dist/public'
+    }
   },
 
   runtimeConfig: {

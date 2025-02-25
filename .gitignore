@@ -11,5 +11,5 @@ node_modules
 .vscode
 .DS_Store
 .idea
-.dist
+dist
 .next

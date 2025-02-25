@@ -37,6 +37,7 @@
   "devDependencies": {
     "@nuxt/devtools": "latest",
     "@nuxt/types": "^2.18.1",
+    "@nuxtjs/vercel-builder": "^1.0.1",
     "@types/geojson": "^7946.0.16",
     "@types/google.maps": "^3.58.1",
     "@types/node": "^20.11.19",
