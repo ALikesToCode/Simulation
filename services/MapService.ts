@@ -480,7 +480,14 @@ export class MapService {
   }
 
   getSources() {
-    return this.sources
+    return [...this.sources]
+  }
+
+  toggleSource(sourceName: string) {
+    const source = this.sources.find(s => s.name === sourceName)
+    if (source) {
+      source.enabled = !source.enabled
+    }
   }
 
   getNavigationPath(start: [number, number], end: [number, number]) {

@@ -51,10 +51,23 @@ declare namespace google.maps {
     setMap(map: Map | null): void;
     onAdd?(): void;
     onContextLost?(): void;
-    onContextRestored?(gl: WebGLRenderingContext): void;
-    onDraw?(gl: WebGLRenderingContext, transformer: CoordinateTransformer): void;
+    onContextRestored?(options: WebGLStateOptions): void;
+    onDraw?(options: WebGLDrawOptions): void;
     onRemove?(): void;
     requestRedraw(): void;
+  }
+
+  // WebGLStateOptions interface for WebGLOverlayView
+  interface WebGLStateOptions {
+    gl: WebGLRenderingContext;
+  }
+
+  // WebGLDrawOptions interface for WebGLOverlayView
+  interface WebGLDrawOptions {
+    gl: WebGLRenderingContext;
+    transformer: CoordinateTransformer;
+    matrix?: Float32Array;
+    projection?: Float32Array;
   }
 
   // CoordinateTransformer interface for WebGLOverlayView
@@ -157,6 +170,43 @@ declare namespace google.maps {
       radius?: number;
       opacity?: number;
     }
+  }
+
+  // Elevation API
+  class ElevationService {
+    constructor();
+    getElevationForLocations(
+      request: LocationElevationRequest,
+      callback: (results: ElevationResult[] | null, status: ElevationStatus) => void
+    ): void;
+    getElevationAlongPath(
+      request: PathElevationRequest,
+      callback: (results: ElevationResult[] | null, status: ElevationStatus) => void
+    ): void;
+  }
+
+  interface LocationElevationRequest {
+    locations: LatLng[] | LatLngLiteral[];
+  }
+
+  interface PathElevationRequest {
+    path: LatLng[] | LatLngLiteral[];
+    samples: number;
+  }
+
+  interface ElevationResult {
+    elevation: number;
+    location: LatLng;
+    resolution: number;
+  }
+
+  enum ElevationStatus {
+    OK = 'OK',
+    INVALID_REQUEST = 'INVALID_REQUEST',
+    OVER_QUERY_LIMIT = 'OVER_QUERY_LIMIT',
+    REQUEST_DENIED = 'REQUEST_DENIED',
+    UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+    DATA_NOT_AVAILABLE = 'DATA_NOT_AVAILABLE'
   }
 }
 

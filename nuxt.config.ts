@@ -13,7 +13,7 @@ export default defineNuxtConfig({
       ],
       script: [
         {
-          src: `https://maps.googleapis.com/maps/api/js?key=${process.env.GOOGLE_MAPS_API_KEY}&libraries=places,geometry`,
+          src: `https://maps.googleapis.com/maps/api/js?key=${process.env.GOOGLE_MAPS_API_KEY}&libraries=places,geometry,visualization&v=beta&loading=async`,
           defer: true
         }
       ]
@@ -36,15 +36,7 @@ export default defineNuxtConfig({
     },
     build: {
       target: 'esnext',
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            three: ['three'],
-            'three-examples': ['three/examples/jsm/controls/OrbitControls'],
-            maps: ['@googlemaps/google-maps-services-js']
-          }
-        }
-      }
+      chunkSizeWarningLimit: 600
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
@@ -52,7 +44,12 @@ export default defineNuxtConfig({
   },
 
   nitro: {
-    preset: 'node-server'
+    preset: 'vercel',
+    output: {
+      dir: 'dist',
+      serverDir: 'dist/server',
+      publicDir: 'dist/public'
+    }
   },
 
   runtimeConfig: {
