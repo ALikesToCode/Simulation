@@ -1,4 +1,5 @@
 import express from 'express'
+import type { Request, Response } from 'express'
 import cors from 'cors'
 import OpenAI from 'openai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
@@ -18,12 +19,12 @@ const gemini = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // Health check endpoint
-app.get('/', (req, res) => {
+app.get('/', (req: Request, res: Response) => {
   res.json({ status: 'ok' })
 })
 
 // AI Response endpoint
-app.post('/api/agent/response', async (req, res) => {
+app.post('/api/agent/response', async (req: Request, res: Response) => {
   try {
     const { provider, prompt, context } = req.body
 

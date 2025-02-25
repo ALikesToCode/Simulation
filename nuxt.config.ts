@@ -36,15 +36,6 @@ export default defineNuxtConfig({
     },
     build: {
       target: 'esnext',
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            three: ['three'],
-            'three-examples': ['three/examples/jsm/controls/OrbitControls'],
-            maps: ['@googlemaps/google-maps-services-js']
-          }
-        }
-      }
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
