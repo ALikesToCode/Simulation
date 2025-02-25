@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Maps 3D Test</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    
+    #map {
+      height: 100%;
+    }
+    
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+      background-color: white;
+      padding: 10px;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
+    
+    button {
+      margin: 5px;
+      padding: 8px 12px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    button:hover {
+      background-color: #3367d6;
+    }
+    
+    .tilt-control {
+      margin-top: 10px;
+    }
+    
+    .tilt-control label {
+      display: block;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  
+  <div class="controls">
+    <button id="toggle3d">Toggle 3D</button>
+    <button id="rotate">Rotate Map</button>
+    <div class="tilt-control">
+      <label for="tilt">Tilt: <span id="tiltValue">0</span>°</label>
+      <input type="range" id="tilt" min="0" max="60" step="5" value="0">
+    </div>
+  </div>
+
+  <script>
+    let map;
+    let is3DMode = false;
+    
+    function initMap() {
+      // New York City coordinates
+      const center = { lat: 40.7580, lng: -73.9855 };
+      
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: center,
+        zoom: 18,
+        mapTypeId: 'roadmap',
+        mapTypeControl: true,
+        streetViewControl: true,
+        fullscreenControl: true
+      });
+      
+      // Add event listeners for controls
+      document.getElementById('toggle3d').addEventListener('click', toggle3D);
+      document.getElementById('rotate').addEventListener('click', rotateMap);
+      document.getElementById('tilt').addEventListener('input', setTilt);
+      
+      // Log when map is fully loaded
+      google.maps.event.addListenerOnce(map, 'idle', () => {
+        console.log('Map loaded successfully');
+      });
+    }
+    
+    function toggle3D() {
+      is3DMode = !is3DMode;
+      
+      if (is3DMode) {
+        // Switch to 3D mode
+        const tiltValue = 45;
+        document.getElementById('tilt').value = tiltValue;
+        document.getElementById('tiltValue').textContent = tiltValue;
+        map.setTilt(tiltValue);
+        
+        // Switch to satellite view for better 3D visualization
+        map.setMapTypeId('satellite');
+      } else {
+        // Switch back to 2D mode
+        document.getElementById('tilt').value = 0;
+        document.getElementById('tiltValue').textContent = 0;
+        map.setTilt(0);
+        
+        // Switch back to roadmap view
+        map.setMapTypeId('roadmap');
+      }
+    }
+    
+    function rotateMap() {
+      if (!is3DMode) {
+        alert('Please switch to 3D mode first');
+        return;
+      }
+      
+      // Get current heading
+      const currentHeading = map.getHeading() || 0;
+      
+      // Rotate by 45 degrees
+      map.setHeading((currentHeading + 45) % 360);
+    }
+    
+    function setTilt() {
+      const tiltValue = parseInt(document.getElementById('tilt').value);
+      document.getElementById('tiltValue').textContent = tiltValue;
+      
+      if (tiltValue > 0 && !is3DMode) {
+        is3DMode = true;
+        map.setMapTypeId('satellite');
+      } else if (tiltValue === 0 && is3DMode) {
+        is3DMode = false;
+        map.setMapTypeId('roadmap');
+      }
+      
+      map.setTilt(tiltValue);
+    }
+  </script>
+  
+  <!-- Load Google Maps API with your API key -->
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBvGPGZKD-FDjMIzu-l1UXDetCsUbuhd5o&callback=initMap">
+  </script>
+</body>
+</html> 
