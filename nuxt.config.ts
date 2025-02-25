@@ -36,6 +36,7 @@ export default defineNuxtConfig({
     },
     build: {
       target: 'esnext',
+      chunkSizeWarningLimit: 600
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
