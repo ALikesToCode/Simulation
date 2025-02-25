@@ -6,6 +6,13 @@ export default defineEventHandler(async (event) => {
     const body = await readBody(event)
     const { center, radius } = body
 
+    if (!body || !body.location) {
+      throw createError({
+        status: 400,
+        message: 'Location is required'
+      })
+    }
+
     const client = new Client({})
     
     // Get nearby places (buildings)
@@ -24,7 +31,7 @@ export default defineEventHandler(async (event) => {
           // Get place details for more information
           const details = await client.placeDetails({
             params: {
-              place_id: place.place_id,
+              place_id: place.place_id || '',
               key: config.googleMapsApiKey,
               fields: ['geometry', 'name', 'type', 'building_levels']
             }
@@ -33,15 +40,15 @@ export default defineEventHandler(async (event) => {
           return {
             id: place.place_id,
             width: 20, // Approximate building width
-            height: (details.data.result.building_levels || 3) * 3, // Approximate height based on levels
+            height: ((details.data.result as any)?.building_levels || 3) * 3, // Approximate height based on levels
             depth: 20, // Approximate building depth
-            type: place.types[0] || 'building',
+            type: place.types?.[0] || 'building',
             properties: {
               name: place.name,
               types: place.types,
               rating: place.rating
             },
-            location: place.geometry.location
+            location: place.geometry?.location || { lat: 0, lng: 0 }
           }
         } catch (error) {
           console.error('Error fetching place details:', error)
@@ -78,11 +85,11 @@ export default defineEventHandler(async (event) => {
       buildings: buildings.filter(Boolean),
       roads
     }
-  } catch (error) {
-    console.error('Error fetching Google Maps data:', error)
+  } catch (error: any) {
+    console.error('Failed to load Google Places data:', error)
     throw createError({
-      statusCode: 500,
-      message: 'Failed to fetch Google Maps data'
+      status: error.status || 500,
+      message: error.message || 'Failed to load Google Places data'
     })
   }
 }) 

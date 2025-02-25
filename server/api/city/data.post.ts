@@ -147,7 +147,7 @@ export default defineEventHandler(async (event) => {
           return null
         }
       })
-      .filter((building): building is BuildingData => building !== null)
+      .filter((building: any): building is BuildingData => building !== null)
 
     // Process road data
     const roads = roadData.elements
@@ -179,7 +179,7 @@ export default defineEventHandler(async (event) => {
           return null
         }
       })
-      .filter((road): road is RoadData => road !== null)
+      .filter((road: any): road is RoadData => road !== null)
 
     return {
       buildings,
@@ -188,7 +188,7 @@ export default defineEventHandler(async (event) => {
   } catch (error: any) {
     console.error('Failed to load city data:', error)
     throw createError({
-      statusCode: error.statusCode || 500,
+      statusCode: error.status || 500,
       message: error.message || 'Failed to load city data'
     })
   }

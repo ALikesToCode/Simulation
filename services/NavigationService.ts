@@ -1,3 +1,5 @@
+/// <reference path="../types/pathfinding.d.ts" />
+/// <reference path="../types/missing-modules.d.ts" />
 import * as THREE from 'three'
 import PF from 'pathfinding'
 
@@ -22,7 +24,7 @@ export class NavigationService {
   private gridSize: number
   private worldSize: THREE.Vector2
 
-  constructor(worldSize: THREE.Vector2, gridSize: number = 5) {
+  constructor(worldSize: THREE.Vector2, gridSize: number = 1) {
     this.worldSize = worldSize
     this.gridSize = gridSize
     this.graph = {
@@ -35,7 +37,7 @@ export class NavigationService {
     this.finder = new PF.AStarFinder({
       allowDiagonal: true,
       dontCrossCorners: true
-    })
+    } as PF.FinderOptions)
   }
 
   buildNavigationMesh(roads: any[], buildings: any[]) {

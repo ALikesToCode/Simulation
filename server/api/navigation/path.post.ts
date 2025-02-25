@@ -1,5 +1,9 @@
+/// <reference path="../../../types/missing-modules.d.ts" />
+/// <reference path="../../../types/pathfinding.d.ts" />
 import * as THREE from 'three'
 import { Grid, AStarFinder } from 'pathfinding'
+import { createError } from 'h3'
+import PF from 'pathfinding'
 
 interface NavNode {
   id: string
@@ -29,7 +33,7 @@ const navigationGrid = new Grid(
 const finder = new AStarFinder({
   allowDiagonal: true,
   dontCrossCorners: true
-})
+} as PF.FinderOptions)
 
 export default defineEventHandler(async (event) => {
   try {
@@ -105,10 +109,10 @@ export default defineEventHandler(async (event) => {
       path
     }
   } catch (error: any) {
-    console.error('Navigation Error:', error)
+    console.error('Failed to calculate path:', error)
     throw createError({
-      statusCode: error.statusCode || 500,
-      message: error.message || 'Failed to find path'
+      statusCode: error.status || 500,
+      message: error.message || 'Failed to calculate path'
     })
   }
 }) 

@@ -37,8 +37,8 @@ import { storeToRefs } from 'pinia'
 import { useSimulationStore } from '~/stores/simulation'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import { MapService } from '../src/services/MapService'
-import { useRuntimeConfig } from '#app/nuxt'
+import { MapService } from '~/services/MapService'
+import { useRuntimeConfig } from '#app'
 
 const canvasContainer = ref<HTMLDivElement>()
 const simulationStore = useSimulationStore()
@@ -59,7 +59,7 @@ let renderer: THREE.WebGLRenderer
 let controls: OrbitControls
 let agentMeshes: Map<string, THREE.Mesh> = new Map()
 let buildingMeshes: THREE.Mesh[] = []
-let roadLines: THREE.Line[] = []
+let roadLines: THREE.Object3D[] = []
 
 // Animation
 let animationFrameId: number

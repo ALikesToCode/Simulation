@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
     
     if (!body || typeof body !== 'object') {
       throw createError({
-        statusCode: 400,
+        status: 400,
         message: 'Invalid request body'
       })
     }
@@ -19,8 +19,22 @@ export default defineEventHandler(async (event) => {
 
     if (!provider || !prompt) {
       throw createError({
-        statusCode: 400,
+        status: 400,
         message: 'Missing required fields: provider and prompt'
+      })
+    }
+
+    if (!body.prompt) {
+      throw createError({
+        status: 400,
+        message: 'Prompt is required'
+      })
+    }
+
+    if (!body.agentId) {
+      throw createError({
+        status: 400,
+        message: 'Agent ID is required'
       })
     }
 
@@ -28,7 +42,7 @@ export default defineEventHandler(async (event) => {
       case 'openai': {
         if (!config.openaiApiKey) {
           throw createError({
-            statusCode: 500,
+            status: 500,
             message: 'OpenAI API key not configured'
           })
         }
@@ -56,7 +70,7 @@ export default defineEventHandler(async (event) => {
       case 'gemini': {
         if (!config.googleApiKey) {
           throw createError({
-            statusCode: 500,
+            status: 500,
             message: 'Google API key not configured'
           })
         }
@@ -76,7 +90,7 @@ export default defineEventHandler(async (event) => {
       case 'anthropic': {
         if (!config.anthropicApiKey) {
           throw createError({
-            statusCode: 500,
+            status: 500,
             message: 'Anthropic API key not configured'
           })
         }
@@ -97,7 +111,7 @@ export default defineEventHandler(async (event) => {
       
       default:
         throw createError({
-          statusCode: 400,
+          status: 400,
           message: `Invalid AI provider: ${provider}`
         })
     }
@@ -110,7 +124,7 @@ export default defineEventHandler(async (event) => {
     }
     
     throw createError({
-      statusCode: 500,
+      status: 500,
       message: error.message || 'Internal server error'
     })
   }

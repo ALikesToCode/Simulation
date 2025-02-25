@@ -1,5 +1,8 @@
+/// <reference path="../types/google-maps.d.ts" />
+/// <reference types="@types/google.maps" />
+/// <reference path="../types/missing-modules.d.ts" />
 import * as THREE from 'three'
-import { Feature, Geometry } from 'geojson'
+import type { Feature, Geometry } from 'geojson'
 
 interface BuildingData {
   id: string
@@ -157,8 +160,8 @@ export class MapService {
     // Process the data
     const nodes = new Map()
     buildingData.elements.concat(roadData.elements)
-      .filter(element => element.type === 'node')
-      .forEach(node => nodes.set(node.id, node))
+      .filter((element: any) => element.type === 'node')
+      .forEach((node: any) => nodes.set(node.id, node))
 
     // Process buildings
     this.processBuildingData(buildingData, nodes, source.name)
@@ -216,14 +219,14 @@ export class MapService {
 
       // Get building footprints using Places API
       const service = new google.maps.places.PlacesService(map)
-      const request = {
+      const request: google.maps.places.PlaceSearchRequest = {
         location: new google.maps.LatLng(center[0], center[1]),
         radius: radius,
-        type: ['building']
+        type: 'building'
       }
 
       const places = await new Promise((resolve, reject) => {
-        service.nearbySearch(request, (results, status) => {
+        service.nearbySearch(request, (results: any, status: any) => {
           if (status === google.maps.places.PlacesServiceStatus.OK) {
             resolve(results)
           } else {
@@ -292,8 +295,8 @@ export class MapService {
 
   private processBuildingData(data: any, nodes: Map<string, any>, sourceName: string) {
     data.elements
-      .filter(element => element.type === 'way' && element.tags?.building)
-      .forEach(building => {
+      .filter((element: any) => element.type === 'way' && element.tags?.building)
+      .forEach((building: any) => {
         try {
           const height = building.tags.height 
             ? parseFloat(building.tags.height)
@@ -302,7 +305,7 @@ export class MapService {
               : 10
 
           const coordinates = building.nodes
-            .map(nodeId => {
+            .map((nodeId: any) => {
               const node = nodes.get(nodeId)
               if (!node) return null
               return new THREE.Vector2(
@@ -310,7 +313,7 @@ export class MapService {
                 this.latitudeToZ(node.lat)
               )
             })
-            .filter(coord => coord !== null)
+            .filter((coord: any) => coord !== null)
 
           if (coordinates.length < 3) return
 
@@ -338,11 +341,11 @@ export class MapService {
 
   private processRoadData(data: any, nodes: Map<string, any>, sourceName: string) {
     data.elements
-      .filter(element => element.type === 'way' && element.tags?.highway)
-      .forEach(road => {
+      .filter((element: any) => element.type === 'way' && element.tags?.highway)
+      .forEach((road: any) => {
         try {
           const path = road.nodes
-            .map(nodeId => {
+            .map((nodeId: any) => {
               const node = nodes.get(nodeId)
               if (!node) return null
               return new THREE.Vector3(
@@ -351,7 +354,7 @@ export class MapService {
                 this.latitudeToZ(node.lat)
               )
             })
-            .filter(point => point !== null)
+            .filter((point: any) => point !== null)
 
           if (path.length < 2) return
 
@@ -375,7 +378,7 @@ export class MapService {
       if (feature.geometry.type !== 'Polygon') return
 
       const coordinates = feature.geometry.coordinates[0]
-        .map(([lon, lat]) => new THREE.Vector2(
+        .map(([lon, lat]: [number, number]) => new THREE.Vector2(
           this.longitudeToX(lon),
           this.latitudeToZ(lat)
         ))
@@ -409,7 +412,7 @@ export class MapService {
       if (feature.geometry.type !== 'LineString') return
 
       const path = feature.geometry.coordinates
-        .map(([lon, lat]) => new THREE.Vector3(
+        .map(([lon, lat]: [number, number]) => new THREE.Vector3(
           this.longitudeToX(lon),
           0,
           this.latitudeToZ(lat)
