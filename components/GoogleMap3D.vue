@@ -78,12 +78,22 @@ const { agents } = storeToRefs(simulationStore)
 let buildingLayer: google.maps.WebGLOverlayView | null = null
 
 // Agent markers
-const agentMarkers = new Map<string, google.maps.marker.AdvancedMarkerElement | google.maps.Marker>()
+let agentMarkers: (google.maps.Marker | google.maps.marker.AdvancedMarkerElement)[] = []
 
 // Define events
 const emit = defineEmits<{
   (e: 'map-click', event: google.maps.MapMouseEvent): void
+  (e: 'map-error', error: { message: string }): void
 }>()
+
+// Props
+interface Props {
+  viewMode?: 'default' | 'top' | 'swarm';
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  viewMode: 'default'
+});
 
 // Toggle controls visibility
 const toggleControls = () => {
@@ -97,31 +107,66 @@ if (typeof window !== 'undefined') {
 }
 
 // Function to initialize the map
-const initMap = () => {
-  if (!mapContainer.value) return
+const initMap = async () => {
+  if (!mapContainer.value) return;
   
-  const mapOptions: google.maps.MapOptions = {
-    center: { 
-      lat: config.public.simulationSettings.cityCenterLat, 
-      lng: config.public.simulationSettings.cityCenterLng 
-    },
-    zoom: currentZoom.value,
-    mapTypeControl: false,
-    streetViewControl: true,
-    fullscreenControl: true,
-    zoomControl: true,
-    // Use a default map ID for standard view
-    mapId: '8e0a97af9386fef'
+  try {
+    const mapOptions: google.maps.MapOptions = {
+      center: { 
+        lat: config.public.simulationSettings.cityCenterLat, 
+        lng: config.public.simulationSettings.cityCenterLng 
+      },
+      zoom: currentZoom.value,
+      mapTypeControl: false,
+      streetViewControl: true,
+      fullscreenControl: true,
+      zoomControl: true,
+      // Use a default map ID for standard view
+      mapId: '8e0a97af9386fef'
+    };
+    
+    // Create the map instance
+    map.value = new google.maps.Map(mapContainer.value, mapOptions);
+    
+    // Add event listener for when the map is idle (fully loaded)
+    google.maps.event.addListenerOnce(map.value, 'idle', () => {
+      initBuildingLayer();
+      initMapClickListener();
+    });
+    
+    // Handle API errors
+    google.maps.event.addListenerOnce(map.value, 'error', (error) => {
+      console.error('Google Maps error:', error);
+      showFallbackMap();
+    });
+  } catch (error) {
+    console.error('Error initializing Google Maps:', error);
+    showFallbackMap();
   }
+};
+
+// Show a fallback map when Google Maps fails to load
+const showFallbackMap = () => {
+  if (!mapContainer.value) return;
   
-  map.value = new google.maps.Map(mapContainer.value, mapOptions)
+  // Clear the container
+  mapContainer.value.innerHTML = '';
   
-  // Add event listener for when the map is idle (fully loaded)
-  google.maps.event.addListenerOnce(map.value, 'idle', () => {
-    initBuildingLayer()
-    initMapClickListener()
-  })
-}
+  // Create a fallback div with a message
+  const fallbackDiv = document.createElement('div');
+  fallbackDiv.className = 'fallback-map';
+  fallbackDiv.innerHTML = `
+    <div class="fallback-message">
+      <h3>Map Unavailable</h3>
+      <p>Google Maps could not be loaded. Using simulation without map visualization.</p>
+    </div>
+  `;
+  
+  mapContainer.value.appendChild(fallbackDiv);
+  
+  // Emit an event to notify parent components
+  emit('map-error', { message: 'Google Maps could not be loaded' });
+};
 
 // Initialize map click listener
 const initMapClickListener = () => {
@@ -376,71 +421,35 @@ const worldToLatLng = (position: THREE.Vector3): google.maps.LatLng => {
 
 // Update agent markers on the map
 const updateAgentMarkers = () => {
-  if (!map.value) return
+  if (!map.value) return;
   
-  // Remove old markers
-  const currentIds = new Set(agents.value.map(a => a.id))
-  for (const [id, marker] of agentMarkers) {
-    if (!currentIds.has(id)) {
-      try {
-        if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && marker instanceof google.maps.marker.AdvancedMarkerElement) {
-          marker.map = null
-        } else if (marker instanceof google.maps.Marker) {
-          marker.setMap(null)
-        }
-      } catch (error) {
-        console.error('Error removing marker:', error)
-      }
-      agentMarkers.delete(id)
+  // Remove all existing markers
+  agentMarkers.forEach(marker => {
+    if (marker instanceof google.maps.Marker) {
+      marker.setMap(null);
+    } else if (marker instanceof google.maps.marker.AdvancedMarkerElement) {
+      marker.map = null;
     }
-  }
+  });
+  
+  // Clear the array
+  agentMarkers = [];
   
   // Skip if agents are not visible
   if (!agentsVisible.value) {
-    for (const marker of agentMarkers.values()) {
-      try {
-        if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && marker instanceof google.maps.marker.AdvancedMarkerElement) {
-          marker.map = null
-        } else if (marker instanceof google.maps.Marker) {
-          marker.setMap(null)
-        }
-      } catch (error) {
-        console.error('Error hiding marker:', error)
-      }
-    }
-    return
+    return;
   }
   
-  // Update or create new markers
+  // Create new markers for all agents
   for (const agent of agents.value) {
     try {
-      const latLng = worldToLatLng(agent.position)
-      let marker = agentMarkers.get(agent.id)
-      
-      if (!marker) {
-        createAgentMarker(agent, latLng)
-      } else {
-        // Update existing marker
-        try {
-          if (google.maps.marker && google.maps.marker.AdvancedMarkerElement && marker instanceof google.maps.marker.AdvancedMarkerElement) {
-            marker.position = latLng;
-            marker.map = map.value;
-          } else if (marker instanceof google.maps.Marker) {
-            marker.setPosition(latLng);
-            marker.setMap(map.value);
-          }
-        } catch (error) {
-          console.error('Error updating marker position:', error)
-          // If updating fails, try recreating the marker
-          agentMarkers.delete(agent.id)
-          createAgentMarker(agent, latLng)
-        }
-      }
+      const latLng = worldToLatLng(agent.position);
+      createAgentMarker(agent, latLng);
     } catch (error) {
-      console.error(`Error processing agent ${agent.id}:`, error)
+      console.error(`Error processing agent ${agent.id}:`, error);
     }
   }
-}
+};
 
 // Helper function to create a new agent marker
 const createAgentMarker = (agent: any, latLng: google.maps.LatLng) => {
@@ -483,11 +492,9 @@ const createAgentMarker = (agent: any, latLng: google.maps.LatLng) => {
         emit('map-click', customEvent);
       });
       
-      agentMarkers.set(agent.id, advancedMarker);
+      agentMarkers.push(advancedMarker);
     } else {
       // Fallback to regular marker
-      console.warn('Falling back to deprecated google.maps.Marker for agent markers. Consider updating your Google Maps API version.')
-      
       const marker = new google.maps.Marker({
         position: latLng,
         map: map.value,
@@ -506,23 +513,23 @@ const createAgentMarker = (agent: any, latLng: google.maps.LatLng) => {
           fontSize: '10px'
         },
         optimized: true
-      })
+      });
       
       // Add click listener to marker
       marker.addListener('click', () => {
         const customEvent = {
           latLng: marker.getPosition()
-        } as google.maps.MapMouseEvent
+        } as google.maps.MapMouseEvent;
         
-        emit('map-click', customEvent)
-      })
+        emit('map-click', customEvent);
+      });
       
-      agentMarkers.set(agent.id, marker)
+      agentMarkers.push(marker);
     }
   } catch (error) {
-    console.error('Error creating marker for agent:', agent.id, error)
+    console.error('Error creating marker for agent:', agent.id, error);
   }
-}
+};
 
 // Load Google Maps API dynamically if not already loaded by Nuxt
 const loadGoogleMapsScript = () => {
@@ -570,32 +577,122 @@ watch(agents, () => {
   updateAgentMarkers()
 }, { deep: true })
 
+// Set up map based on viewMode
+const setupMapView = () => {
+  if (!map.value) return;
+  
+  switch (props.viewMode) {
+    case 'top':
+      // Drone view - top-down satellite view
+      map.value.setMapTypeId('satellite');
+      map.value.setTilt(0);
+      map.value.setZoom(18);
+      break;
+    case 'swarm':
+      // Swarm view - road map with markers for agents
+      map.value.setMapTypeId('roadmap');
+      map.value.setTilt(0);
+      map.value.setZoom(16);
+      showAgentMarkers();
+      break;
+    default:
+      // Default view
+      map.value.setMapTypeId('hybrid');
+      map.value.setTilt(45);
+      map.value.setZoom(17);
+      break;
+  }
+};
+
+// Show agent markers for swarm view
+const showAgentMarkers = () => {
+  if (!map.value) return;
+  
+  // Clear existing markers
+  agentMarkers.forEach(marker => {
+    if (marker instanceof google.maps.Marker) {
+      marker.setMap(null);
+    } else if (marker instanceof google.maps.marker.AdvancedMarkerElement) {
+      marker.map = null;
+    }
+  });
+  
+  agentMarkers = [];
+  
+  // Add markers for each agent
+  agents.value.forEach(agent => {
+    const position = agent.position;
+    const latLng = worldToLatLng(position);
+    
+    const markerColor = agent.type === 'blue' ? 'blue' : 
+                        agent.type === 'red' ? 'red' : 'green';
+    
+    const marker = new google.maps.Marker({
+      position: latLng,
+      map: map.value,
+      title: agent.id, // Use id instead of name
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: markerColor,
+        fillOpacity: 0.8,
+        strokeColor: 'white',
+        strokeWeight: 1,
+        scale: 8
+      }
+    });
+    
+    agentMarkers.push(marker);
+  });
+};
+
+// Watch for viewMode changes
+watch(() => props.viewMode, () => {
+  if (map.value) {
+    setupMapView();
+  }
+});
+
+// Watch for agents changes to update markers in swarm view
+watch(() => agents.value, () => {
+  if (props.viewMode === 'swarm' && map.value) {
+    showAgentMarkers();
+  }
+}, { deep: true });
+
 onMounted(async () => {
   try {
+    // Ensure the map container is properly rendered before initializing
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     // Check if Google Maps API is loaded
     if (typeof google !== 'undefined' && google.maps) {
       // API is already loaded, initialize the map
-      initMap()
-      mapInitialized.value = true
+      await initMap();
+      mapInitialized.value = true;
     } else {
       // API is not loaded yet, wait for it
       const checkGoogleMapsLoaded = () => {
         if (typeof google !== 'undefined' && google.maps) {
           // API is now loaded
-          initMap()
-          mapInitialized.value = true
+          initMap().then(() => {
+            mapInitialized.value = true;
+          }).catch(error => {
+            console.error('Error initializing map:', error);
+            showFallbackMap();
+          });
         } else {
           // Check again in 100ms
-          setTimeout(checkGoogleMapsLoaded, 100)
+          setTimeout(checkGoogleMapsLoaded, 100);
         }
-      }
+      };
       
-      checkGoogleMapsLoaded()
+      checkGoogleMapsLoaded();
     }
   } catch (error) {
-    console.error('Error initializing Google Maps:', error)
+    console.error('Error initializing Google Maps:', error);
+    showFallbackMap();
   }
-})
+});
 
 onBeforeUnmount(() => {
   // Clean up event listeners if needed
@@ -609,7 +706,7 @@ onBeforeUnmount(() => {
   }
   
   // Clean up markers
-  for (const marker of agentMarkers.values()) {
+  for (const marker of agentMarkers) {
     try {
       if (google.maps && google.maps.marker && google.maps.marker.AdvancedMarkerElement && 
           marker instanceof google.maps.marker.AdvancedMarkerElement) {
@@ -621,7 +718,7 @@ onBeforeUnmount(() => {
       console.error('Error cleaning up marker:', error)
     }
   }
-  agentMarkers.clear()
+  agentMarkers = []
 })
 
 // Expose map instance and methods for parent components
@@ -667,6 +764,29 @@ declare global {
 .map {
   width: 100%;
   height: 100%;
+}
+
+.fallback-map {
+  width: 100%;
+  height: 100%;
+  background-color: #2a2a2a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  text-align: center;
+}
+
+.fallback-message {
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 80%;
+}
+
+.fallback-message h3 {
+  margin-top: 0;
+  color: #ff6b6b;
 }
 
 .controls-toggle {

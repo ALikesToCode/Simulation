@@ -64,6 +64,17 @@ const config = useRuntimeConfig()
 const useGoogleMaps3D = ref(false)
 const googleMapsIframe = ref<HTMLIFrameElement | null>(null)
 
+// Props
+interface Props {
+  viewMode?: 'default' | 'thirdPerson' | 'conversation';
+  selectedAgentId?: string | null;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  viewMode: 'default',
+  selectedAgentId: null
+});
+
 // Define events
 const emit = defineEmits<{
   (e: 'simulation-click', position: THREE.Vector3): void
@@ -869,17 +880,76 @@ watch(() => agents.value, () => {
   updateAgentMeshes()
 }, { deep: true })
 
-onMounted(async () => {
-  initThree()
-  
-  // Initialize the simulation if not already initialized
-  if (!cityData.value || !cityData.value.buildings || cityData.value.buildings.length === 0) {
-    await simulationStore.initializeSimulation()
+// Set up camera based on viewMode
+const setupCamera = () => {
+  if (!camera) {
+    console.warn('Camera not initialized yet');
+    return;
   }
   
-  updateCityMeshes()
-  updateAgentMeshes()
-})
+  try {
+    switch (props.viewMode) {
+      case 'thirdPerson':
+        // Third person view - closer to the ground, following an agent
+        camera.position.set(0, 5, 10);
+        camera.lookAt(0, 0, 0);
+        break;
+      case 'conversation':
+        // Conversation view - eye level, good for agent interactions
+        camera.position.set(0, 1.7, 5);
+        camera.lookAt(0, 1.7, 0);
+        break;
+      default:
+        // Default view - higher up, more overview
+        camera.position.set(0, 50, 50);
+        camera.lookAt(0, 0, 0);
+        break;
+    }
+  } catch (error) {
+    console.error('Error setting up camera:', error);
+  }
+};
+
+// Watch for viewMode changes
+watch(() => props.viewMode, () => {
+  setupCamera();
+});
+
+// Watch for selectedAgentId changes
+watch(() => props.selectedAgentId, (newId) => {
+  if (newId && props.viewMode !== 'default') {
+    focusOnAgent(newId);
+  }
+});
+
+onMounted(async () => {
+  try {
+    // Initialize Three.js
+    initThree();
+    
+    // Wait a moment for DOM to fully render
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Initialize the simulation if not already initialized
+    if (!cityData.value || !cityData.value.buildings || cityData.value.buildings.length === 0) {
+      try {
+        await simulationStore.initializeSimulation();
+      } catch (error) {
+        console.error('Failed to initialize simulation:', error);
+        // Continue with default city data
+      }
+    }
+    
+    // Update meshes
+    updateCityMeshes();
+    updateAgentMeshes();
+    
+    // Set up camera based on viewMode
+    setupCamera();
+  } catch (error) {
+    console.error('Error during SimulationEnvironment initialization:', error);
+  }
+});
 
 onBeforeUnmount(() => {
   // Clean up

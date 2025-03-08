@@ -88,7 +88,8 @@ export const useSimulationStore = defineStore('simulation', {
     cityData: {
       buildings: [],
       roads: [],
-      pois: []
+      pois: [],
+      center: { lat: 40.7831, lng: -73.9712 } // Default to Central Park, NYC
     },
     stats: {
       blueAgentsSuccess: 0,
@@ -530,6 +531,212 @@ export const useSimulationStore = defineStore('simulation', {
         agent.state.isHighlighted = false
         agent.state.pathVisible = false
       })
+    },
+
+    // Convert world coordinates to latitude/longitude
+    worldToLatLng(position: THREE.Vector3): google.maps.LatLngLiteral {
+      const center = this.cityData?.center || { lat: 40.7831, lng: -73.9712 };
+      
+      // Scale factor (meters per world unit)
+      const scale = 10;
+      
+      // Earth's radius in meters
+      const earthRadius = 6378137;
+      
+      // Calculate offsets in meters
+      const xOffset = position.x * scale;
+      const zOffset = position.z * scale;
+      
+      // Convert to lat/lng
+      const latOffset = (zOffset / earthRadius) * (180 / Math.PI);
+      const lngOffset = (xOffset / (earthRadius * Math.cos(center.lat * Math.PI / 180))) * (180 / Math.PI);
+      
+      return {
+        lat: center.lat + latOffset,
+        lng: center.lng + lngOffset
+      };
+    },
+    
+    // Convert latitude/longitude to world coordinates
+    latLngToWorld(latLng: google.maps.LatLngLiteral): THREE.Vector3 {
+      const center = this.cityData?.center || { lat: 40.7831, lng: -73.9712 };
+      
+      // Scale factor (world units per meter)
+      const scale = 0.1;
+      
+      // Earth's radius in meters
+      const earthRadius = 6378137;
+      
+      // Calculate offsets in lat/lng
+      const latOffset = latLng.lat - center.lat;
+      const lngOffset = latLng.lng - center.lng;
+      
+      // Convert to meters
+      const zOffset = latOffset * (Math.PI / 180) * earthRadius;
+      const xOffset = lngOffset * (Math.PI / 180) * earthRadius * Math.cos(center.lat * Math.PI / 180);
+      
+      // Convert to world units
+      return new THREE.Vector3(
+        xOffset * scale,
+        0, // y is always 0 (ground level)
+        zOffset * scale
+      );
+    },
+    
+    // Setup simulation with start and end locations
+    async setupSimulation(options: { startLocation: string, endLocation: string }) {
+      try {
+        // Initialize the simulation
+        await this.initializeSimulation();
+        
+        let startLatLng, endLatLng;
+        
+        try {
+          // Create a geocoder if needed
+          const geocoder = new google.maps.Geocoder();
+          
+          // Geocode start location
+          const startResult = await new Promise<google.maps.GeocoderResult>((resolve, reject) => {
+            geocoder.geocode({ address: options.startLocation }, (results, status) => {
+              if (status === google.maps.GeocoderStatus.OK && results && results.length > 0) {
+                resolve(results[0]);
+              } else {
+                reject(new Error(`Geocoding failed for ${options.startLocation}: ${status}`));
+              }
+            });
+          });
+          
+          // Geocode end location
+          const endResult = await new Promise<google.maps.GeocoderResult>((resolve, reject) => {
+            geocoder.geocode({ address: options.endLocation }, (results, status) => {
+              if (status === google.maps.GeocoderStatus.OK && results && results.length > 0) {
+                resolve(results[0]);
+              } else {
+                reject(new Error(`Geocoding failed for ${options.endLocation}: ${status}`));
+              }
+            });
+          });
+          
+          // Get coordinates
+          startLatLng = startResult.geometry.location.toJSON();
+          endLatLng = endResult.geometry.location.toJSON();
+        } catch (error) {
+          console.warn('Geocoding failed, using default coordinates:', error);
+          // Use default coordinates if geocoding fails
+          startLatLng = { lat: 40.7580, lng: -73.9855 };
+          endLatLng = { lat: 40.7680, lng: -73.9755 };
+        }
+        
+        // Ensure cityData is initialized
+        if (!this.cityData) {
+          this.cityData = {
+            buildings: [],
+            roads: [],
+            pois: [],
+            center: { lat: 40.7831, lng: -73.9712 } // Default to Central Park, NYC
+          };
+        }
+        
+        // Set city center based on midpoint between start and end
+        this.cityData.center = {
+          lat: (startLatLng.lat + endLatLng.lat) / 2,
+          lng: (startLatLng.lng + endLatLng.lng) / 2
+        };
+        
+        // Convert to world coordinates
+        const startPosition = this.latLngToWorld(startLatLng);
+        const endPosition = this.latLngToWorld(endLatLng);
+        
+        // Create agents at start position
+        this.agents = [];
+        
+        // Add a blue agent (player/friendly)
+        this.agents.push({
+          id: 'blue-agent-1',
+          position: new THREE.Vector3(startPosition.x, 0, startPosition.z),
+          target: new THREE.Vector3(endPosition.x, 0, endPosition.z),
+          type: 'blue',
+          speed: 0.5,
+          state: {
+            currentTask: 'navigating',
+            knowledge: {
+              visitedLocations: [],
+              knownAgents: [],
+              trustScores: {}
+            },
+            path: [new THREE.Vector3(endPosition.x, 0, endPosition.z)],
+            pathIndex: 0,
+            lastInteractionTime: 0,
+            lastDecision: {
+              reasoning: ['Initial navigation to target'],
+              confidence: 1.0
+            },
+            thoughts: [{
+              timestamp: Date.now(),
+              content: `Starting my journey from ${options.startLocation} to ${options.endLocation}.`
+            }],
+            isHighlighted: false,
+            pathVisible: false
+          }
+        });
+        
+        // Add a few red agents (adversaries)
+        for (let i = 0; i < 3; i++) {
+          // Random position near the path
+          const t = Math.random();
+          const randomOffset = new THREE.Vector3(
+            (Math.random() - 0.5) * 50,
+            0,
+            (Math.random() - 0.5) * 50
+          );
+          
+          const basePosition = new THREE.Vector3().lerpVectors(
+            startPosition,
+            endPosition,
+            t
+          );
+          
+          const position = basePosition.clone().add(randomOffset);
+          
+          this.agents.push({
+            id: `red-agent-${i+1}`,
+            position: position,
+            target: new THREE.Vector3(
+              startPosition.x + (Math.random() - 0.5) * 100,
+              0,
+              startPosition.z + (Math.random() - 0.5) * 100
+            ),
+            type: 'red',
+            speed: 0.3 + Math.random() * 0.4,
+            state: {
+              currentTask: 'exploring',
+              knowledge: {
+                visitedLocations: [],
+                knownAgents: [],
+                trustScores: {}
+              },
+              path: [],
+              pathIndex: 0,
+              lastInteractionTime: 0,
+              lastDecision: {
+                reasoning: ['Initial exploration'],
+                confidence: 0.8
+              },
+              thoughts: [{
+                timestamp: Date.now(),
+                content: 'Searching for targets in the area.'
+              }],
+              isHighlighted: false,
+              pathVisible: false
+            }
+          });
+        }
+        
+        return true;
+      } catch (error) {
+        console.error('Error setting up simulation:', error);
+        throw error;
+      }
     }
   }
 }) 
