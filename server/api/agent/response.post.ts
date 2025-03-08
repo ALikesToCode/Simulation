@@ -1,43 +1,28 @@
 import OpenAI from 'openai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
+import ModelService from '../../../services/ModelService'
 
 export default defineEventHandler(async (event) => {
-  const config = useRuntimeConfig()
-  
   try {
     const body = await readBody(event)
-    
-    if (!body || typeof body !== 'object') {
-      throw createError({
-        status: 400,
-        message: 'Invalid request body'
-      })
-    }
-    
-    const { provider, prompt, context } = body
+    const { provider, prompt, context, modelId } = body
 
     if (!provider || !prompt) {
       throw createError({
-        status: 400,
-        message: 'Missing required fields: provider and prompt'
+        statusCode: 400,
+        statusMessage: 'Provider and prompt are required'
       })
     }
 
-    if (!body.prompt) {
-      throw createError({
-        status: 400,
-        message: 'Prompt is required'
-      })
+    // Load API keys from environment variables
+    const config = {
+      openaiApiKey: process.env.OPENAI_API_KEY || '',
+      googleApiKey: process.env.GOOGLE_API_KEY || '',
+      anthropicApiKey: process.env.ANTHROPIC_API_KEY || ''
     }
 
-    if (!body.agentId) {
-      throw createError({
-        status: 400,
-        message: 'Agent ID is required'
-      })
-    }
-
+    // Process based on provider
     switch (provider) {
       case 'openai': {
         if (!config.openaiApiKey) {
@@ -75,15 +60,32 @@ export default defineEventHandler(async (event) => {
           })
         }
 
-        const gemini = new GoogleGenerativeAI(config.googleApiKey)
-        const model = gemini.getGenerativeModel({ model: 'gemini-pro' })
-        const response = await model.generateContent(prompt)
-        const result = response.response.text()
-        
-        return {
-          text: result,
-          reasoning: ['Processed input', 'Generated response', 'Evaluated outcome'],
-          confidence: 0.8
+        try {
+          const gemini = new GoogleGenerativeAI(config.googleApiKey)
+          
+          // Use the provided model ID or get the latest model from ModelService
+          const modelIdToUse = modelId || (() => {
+            const latestModel = ModelService.getLatestModel('google')
+            return latestModel?.id || 'gemini-1.5-pro'
+          })()
+          
+          const model = gemini.getGenerativeModel({ model: modelIdToUse })
+          
+          const result = await model.generateContent(prompt)
+          const response = await result.response
+          const text = await response.text()
+          
+          return {
+            text,
+            reasoning: [`Generated using ${modelIdToUse}`],
+            confidence: 0.9
+          }
+        } catch (error) {
+          console.error('Gemini API error:', error)
+          throw createError({
+            statusCode: 500,
+            statusMessage: 'Failed to get response from Gemini'
+          })
         }
       }
       
@@ -111,21 +113,12 @@ export default defineEventHandler(async (event) => {
       
       default:
         throw createError({
-          status: 400,
-          message: `Invalid AI provider: ${provider}`
+          statusCode: 400,
+          statusMessage: 'Invalid provider'
         })
     }
-  } catch (error: any) {
-    console.error('AI Service Error:', error)
-    
-    // Handle different types of errors
-    if (error.statusCode) {
-      throw error // Re-throw Nuxt errors
-    }
-    
-    throw createError({
-      status: 500,
-      message: error.message || 'Internal server error'
-    })
+  } catch (error) {
+    console.error('Error in agent response:', error)
+    throw error
   }
 }) 
