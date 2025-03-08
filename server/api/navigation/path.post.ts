@@ -2,7 +2,8 @@
 /// <reference path="../../../types/pathfinding.d.ts" />
 import * as THREE from 'three'
 import { Grid, AStarFinder } from 'pathfinding'
-import { createError } from 'h3'
+// @ts-ignore
+import { defineEventHandler, readBody, createError } from '#imports'
 import PF from 'pathfinding'
 
 interface NavNode {
@@ -35,7 +36,17 @@ const finder = new AStarFinder({
   dontCrossCorners: true
 } as PF.FinderOptions)
 
-export default defineEventHandler(async (event) => {
+// Define a simple interface for the event object
+interface ApiEvent {
+  // Add minimal properties needed for type checking
+  node: {
+    req: any;
+    res: any;
+  };
+  context: any;
+}
+
+export default defineEventHandler(async (event: ApiEvent) => {
   try {
     const body = await readBody(event)
     const { position, type } = body

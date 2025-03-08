@@ -9,6 +9,21 @@
       </div>
     </div>
     
+    <div class="api-status-bar">
+      <div class="api-status">
+        <span class="api-label">Google Maps:</span>
+        <span class="api-indicator" :class="{ 'available': apiStatus.google, 'unavailable': !apiStatus.google }">
+          {{ apiStatus.google ? 'Available' : 'Unavailable' }}
+        </span>
+      </div>
+      <div class="api-status">
+        <span class="api-label">Gemini API:</span>
+        <span class="api-indicator" :class="{ 'available': apiStatus.gemini, 'unavailable': !apiStatus.gemini }">
+          {{ apiStatus.gemini ? 'Available' : 'Unavailable (Using Fallback)' }}
+        </span>
+      </div>
+    </div>
+
     <div class="main-content">
       <div class="simulation-content">
         <div class="simulation-area">
@@ -214,6 +229,17 @@
         </div>
       </div>
     </div>
+
+    <div class="notifications-container">
+      <div 
+        v-for="notification in notifications" 
+        :key="notification.id" 
+        class="notification" 
+        :class="notification.type"
+      >
+        {{ notification.message }}
+      </div>
+    </div>
   </div>
 </template>
 
@@ -288,6 +314,25 @@ const allMessages = computed(() => {
   return messages.sort((a, b) => b.timestamp - a.timestamp);
 });
 
+// Add a status indicator for API availability
+const apiStatus = ref<{
+  google: boolean;
+  gemini: boolean;
+  openai: boolean;
+}>({
+  google: true,
+  gemini: true,
+  openai: true
+});
+
+// Add a notification system
+const notifications = ref<{
+  id: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+  message: string;
+  timestamp: number;
+}[]>([]);
+
 // Agent interface
 interface Position {
   x: number;
@@ -334,11 +379,15 @@ onMounted(async () => {
         await loadCityData();
       } else {
         console.log('Map initialization failed, using fallback environment');
+        apiStatus.value.google = false;
+        showNotification('warning', 'Google Maps API unavailable. Using fallback environment.');
         // Initialize agents without map
         initializeAgents();
       }
     } catch (error) {
       console.error('Error initializing Google Maps:', error);
+      apiStatus.value.google = false;
+      showNotification('error', 'Error initializing Google Maps. Using fallback simulation environment.');
       addMessage('system', 'Error initializing Google Maps. Using fallback simulation environment.', 'System');
       // Initialize agents without map
       initializeAgents();
@@ -348,6 +397,7 @@ onMounted(async () => {
     handleResize();
   } catch (error) {
     console.error('Error during initialization:', error);
+    showNotification('error', 'Error during initialization. Some features may not work correctly.');
     addMessage('system', 'Error during initialization. Some features may not work correctly.', 'System');
   }
 });
@@ -604,11 +654,15 @@ async function loadCityData() {
       }
     } catch (error) {
       console.error('Failed to load city data:', error);
+      apiStatus.value.google = false;
+      showNotification('error', 'Failed to load city data. Using fallback simulation environment.');
       addMessage('system', 'Failed to load city data. Using fallback simulation environment.', 'System');
       generateFallbackCityData();
     }
   } catch (error) {
     console.error('Error in loadCityData:', error);
+    apiStatus.value.google = false;
+    showNotification('error', 'Error loading city data. Using fallback simulation environment.');
     addMessage('system', 'Error loading city data. Using fallback simulation environment.', 'System');
     generateFallbackCityData();
   }
@@ -1240,6 +1294,13 @@ async function getAgentDecision(agent: Agent) {
     const response = await GeminiService.getAgentDecision(context);
     agent.lastAiResponse = response;
     
+    // Check if this is a fallback response (when API is unavailable)
+    const isFallback = response.reasoning.some(r => r.includes('API unavailable'));
+    if (isFallback && apiStatus.value.gemini) {
+      apiStatus.value.gemini = false;
+      showNotification('warning', 'Gemini API unavailable. Using local fallback for agent decisions.');
+    }
+    
     // Process AI response
     switch (response.action) {
       case 'move':
@@ -1266,7 +1327,18 @@ async function getAgentDecision(agent: Agent) {
     }
   } catch (error) {
     console.error('Error getting agent decision:', error);
-    agent.status = 'idle';
+    
+    // Mark Gemini API as unavailable
+    if (apiStatus.value.gemini) {
+      apiStatus.value.gemini = false;
+      showNotification('error', 'Gemini API error. Using local fallback for agent decisions.');
+    }
+    
+    // Use a simple fallback behavior
+    const randomDirection = ['up', 'right', 'down', 'left'][Math.floor(Math.random() * 4)] as 'up' | 'right' | 'down' | 'left';
+    moveAgent(agent.id, randomDirection);
+    
+    addMessage(agent.id, 'Error: Could not determine next action. Moving randomly.', 'System');
   }
 }
 
@@ -1554,6 +1626,22 @@ watch(allMessages, () => {
     }
   });
 });
+
+// Add a function to show notifications
+function showNotification(type: 'info' | 'warning' | 'error' | 'success', message: string) {
+  const id = Date.now().toString();
+  notifications.value.push({
+    id,
+    type,
+    message,
+    timestamp: Date.now()
+  });
+  
+  // Auto-remove after 5 seconds
+  setTimeout(() => {
+    notifications.value = notifications.value.filter(n => n.id !== id);
+  }, 5000);
+}
 </script>
 
 <style scoped>
@@ -2279,5 +2367,96 @@ watch(allMessages, () => {
 
 .simulation-area .agent {
   z-index: 10;
+}
+
+.api-status-bar {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 10px 15px;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.api-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-label {
+  font-weight: 500;
+  color: #495057;
+}
+
+.api-indicator {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.api-indicator.available {
+  background-color: #d1e7dd;
+  color: #0f5132;
+}
+
+.api-indicator.unavailable {
+  background-color: #f8d7da;
+  color: #842029;
+}
+
+.notifications-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 350px;
+}
+
+.notification {
+  padding: 12px 15px;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  animation: slideIn 0.3s ease-out;
+}
+
+.notification.info {
+  background-color: #cff4fc;
+  color: #055160;
+  border-left: 4px solid #0dcaf0;
+}
+
+.notification.warning {
+  background-color: #fff3cd;
+  color: #664d03;
+  border-left: 4px solid #ffc107;
+}
+
+.notification.error {
+  background-color: #f8d7da;
+  color: #842029;
+  border-left: 4px solid #dc3545;
+}
+
+.notification.success {
+  background-color: #d1e7dd;
+  color: #0f5132;
+  border-left: 4px solid #198754;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 </style>

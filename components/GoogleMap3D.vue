@@ -135,7 +135,7 @@ const initMap = async () => {
     });
     
     // Handle API errors
-    google.maps.event.addListenerOnce(map.value, 'error', (error) => {
+    google.maps.event.addListenerOnce(map.value, 'error', (error: any) => {
       console.error('Google Maps error:', error);
       showFallbackMap();
     });

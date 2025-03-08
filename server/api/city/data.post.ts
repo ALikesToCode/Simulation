@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { createError } from 'h3'
+// @ts-ignore
+import { defineEventHandler, readBody, createError } from '#imports'
 
 interface BuildingData {
   id: string
@@ -29,15 +30,25 @@ interface OSMWay {
   tags?: Record<string, string>
 }
 
-export default defineEventHandler(async (event) => {
+// Define a simple interface for the event object
+interface ApiEvent {
+  // Add minimal properties needed for type checking
+  node: {
+    req: any;
+    res: any;
+  };
+  context: any;
+}
+
+export default defineEventHandler(async (event: ApiEvent) => {
   try {
     const body = await readBody(event)
     const { center, radius } = body
 
     if (!center || !radius) {
       throw createError({
-        statusCode: 400,
-        message: 'Center coordinates and radius are required'
+        status: 400,
+        statusText: 'Center coordinates and radius are required'
       })
     }
 

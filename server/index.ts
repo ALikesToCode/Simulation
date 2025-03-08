@@ -80,10 +80,7 @@ app.post('/api/agent/response', async (req: Request, res: Response) => {
           return
         } catch (error) {
           console.error('Gemini API error:', error)
-          throw createError({
-            statusCode: 500,
-            statusMessage: 'Failed to get response from Gemini'
-          })
+          throw new Error('Failed to get response from Gemini')
         }
       }
       

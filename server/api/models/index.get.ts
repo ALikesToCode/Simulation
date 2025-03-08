@@ -1,7 +1,18 @@
-import { defineEventHandler, getQuery, createError } from 'h3'
+// @ts-ignore
+import { defineEventHandler, getQuery, createError } from '#imports'
 import ModelService from '../../../services/ModelService'
 
-export default defineEventHandler(async (event) => {
+// Define a simple interface for the event object
+interface ApiEvent {
+  // Add minimal properties needed for type checking
+  node: {
+    req: any;
+    res: any;
+  };
+  context: any;
+}
+
+export default defineEventHandler(async (event: ApiEvent) => {
   try {
     // Get query parameters
     const query = getQuery(event)

@@ -2,16 +2,28 @@ import OpenAI from 'openai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import ModelService from '../../../services/ModelService'
+// @ts-ignore
+import { defineEventHandler, readBody, createError } from '#imports'
 
-export default defineEventHandler(async (event) => {
+// Define a simple interface for the event object
+interface ApiEvent {
+  // Add minimal properties needed for type checking
+  node: {
+    req: any;
+    res: any;
+  };
+  context: any;
+}
+
+export default defineEventHandler(async (event: ApiEvent) => {
   try {
     const body = await readBody(event)
     const { provider, prompt, context, modelId } = body
 
     if (!provider || !prompt) {
       throw createError({
-        statusCode: 400,
-        statusMessage: 'Provider and prompt are required'
+        status: 400,
+        statusText: 'Provider and prompt are required'
       })
     }
 
@@ -83,8 +95,8 @@ export default defineEventHandler(async (event) => {
         } catch (error) {
           console.error('Gemini API error:', error)
           throw createError({
-            statusCode: 500,
-            statusMessage: 'Failed to get response from Gemini'
+            status: 500,
+            statusText: 'Failed to get response from Gemini'
           })
         }
       }
@@ -113,8 +125,8 @@ export default defineEventHandler(async (event) => {
       
       default:
         throw createError({
-          statusCode: 400,
-          statusMessage: 'Invalid provider'
+          status: 400,
+          statusText: 'Invalid provider'
         })
     }
   } catch (error) {

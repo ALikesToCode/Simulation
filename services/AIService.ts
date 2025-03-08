@@ -27,13 +27,43 @@ interface AIRequestOptions {
 
 export class AIService {
   private apiUrl: string
+  private apiAvailability: {
+    openai: boolean;
+    gemini: boolean;
+    anthropic: boolean;
+  }
+  private retryCount: number = 0
+  private maxRetries: number = 3
 
   constructor() {
     this.apiUrl = ConfigService.apiUrl
+    this.apiAvailability = {
+      openai: true,
+      gemini: true,
+      anthropic: true
+    }
   }
 
   async init() {
-    // No initialization needed for frontend service
+    // Test API availability
+    try {
+      // Make a simple request to test the API
+      const response = await fetch(`${this.apiUrl}/api/models`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        console.warn('API service may be unavailable. Some features may not work correctly.')
+      } else {
+        console.log('API service is available')
+      }
+    } catch (error) {
+      console.error('Error connecting to API service:', error)
+      console.warn('API service is unavailable. Some features may not work correctly.')
+    }
   }
   
   /**
@@ -48,19 +78,14 @@ export class AIService {
       return modelOverride;
     }
     
-    // Get the selected model from localStorage or use the latest model from the provider
-    const storedModel = typeof window !== 'undefined' ? localStorage.getItem('selectedModel') : null;
-    
-    if (storedModel && ModelService.modelExists(storedModel)) {
-      const model = ModelService.getModelById(storedModel);
-      // Only use the stored model if it matches the requested provider
-      if (model && model.provider === provider) {
-        return storedModel;
-      }
-    }
-    
     // Otherwise use the latest model for the provider
-    const latestModel = ModelService.getLatestModel(provider);
+    const providerMapping = {
+      'openai': 'openai',
+      'anthropic': 'anthropic',
+      'gemini': 'google'
+    } as const;
+    
+    const latestModel = ModelService.getLatestModel(providerMapping[provider]);
     return latestModel?.id || '';
   }
 
@@ -69,31 +94,91 @@ export class AIService {
     prompt: string,
     context: any
   ): Promise<AIResponse> {
+    // Check if the provider is available
+    if (!this.apiAvailability[provider]) {
+      console.warn(`${provider} API is marked as unavailable. Using fallback response.`)
+      return this.getFallbackResponse(provider, prompt, context)
+    }
+    
     try {
-      // Get the model ID to use
-      const modelId = this.resolveModelId(provider);
+      // Resolve model ID
+      const modelId = this.resolveModelId(provider)
       
+      // Make API request
       const response = await fetch(`${this.apiUrl}/api/agent/response`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           provider,
           prompt,
           context,
-          modelId // Pass the selected model ID
+          modelId
         })
       })
-
+      
       if (!response.ok) {
-        throw new Error('Failed to get agent response')
+        // Increment retry count
+        this.retryCount++
+        
+        // If we've exceeded max retries, mark provider as unavailable
+        if (this.retryCount >= this.maxRetries) {
+          console.warn(`${provider} API has failed ${this.maxRetries} times. Marking as unavailable.`)
+          this.apiAvailability[provider] = false
+        }
+        
+        throw new Error(`Failed to get response from ${provider}: ${response.statusText}`)
       }
-
-      return await response.json()
+      
+      // Reset retry count on success
+      this.retryCount = 0
+      
+      const data = await response.json()
+      return data
     } catch (error) {
-      console.error('AI Service Error:', error)
-      throw error
+      console.error(`Error getting response from ${provider}:`, error)
+      
+      // Increment retry count
+      this.retryCount++
+      
+      // If we've exceeded max retries, mark provider as unavailable
+      if (this.retryCount >= this.maxRetries) {
+        console.warn(`${provider} API has failed ${this.maxRetries} times. Marking as unavailable.`)
+        this.apiAvailability[provider] = false
+      }
+      
+      // Return fallback response
+      return this.getFallbackResponse(provider, prompt, context)
+    }
+  }
+  
+  /**
+   * Generate a fallback response when the API is unavailable
+   */
+  private getFallbackResponse(
+    provider: 'openai' | 'gemini' | 'anthropic',
+    prompt: string,
+    context: any
+  ): AIResponse {
+    // Simple rule-based fallback
+    let response = "I'm unable to provide a detailed response at the moment."
+    
+    // Check for common keywords in the prompt
+    if (prompt.toLowerCase().includes('hello') || prompt.toLowerCase().includes('hi')) {
+      response = "Hello! I'm currently operating in fallback mode due to API limitations."
+    } else if (prompt.toLowerCase().includes('help')) {
+      response = "I'd like to help, but I'm currently operating with limited capabilities."
+    } else if (prompt.toLowerCase().includes('weather')) {
+      response = "I can't access real-time weather data at the moment."
+    } else if (prompt.toLowerCase().includes('time')) {
+      response = `The current time is ${new Date().toLocaleTimeString()}.`
+    }
+    
+    return {
+      text: response,
+      reasoning: ['API is unavailable', 'Using fallback response'],
+      confidence: 0.5
     }
   }
 
@@ -102,18 +187,18 @@ export class AIService {
       const response = await fetch(`${this.apiUrl}/api/knowledge/update`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ documents })
       })
-
+      
       if (!response.ok) {
-        throw new Error('Failed to update knowledge base')
+        throw new Error(`Failed to update knowledge base: ${response.statusText}`)
       }
-
-      return true
+      
+      return await response.json()
     } catch (error) {
-      console.error('Knowledge Base Update Error:', error)
+      console.error('Error updating knowledge base:', error)
       throw error
     }
   }
@@ -123,18 +208,18 @@ export class AIService {
       const response = await fetch(`${this.apiUrl}/api/knowledge/query`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ query })
       })
-
+      
       if (!response.ok) {
-        throw new Error('Failed to query knowledge base')
+        throw new Error(`Failed to query knowledge base: ${response.statusText}`)
       }
-
+      
       return await response.json()
     } catch (error) {
-      console.error('Knowledge Query Error:', error)
+      console.error('Error querying knowledge base:', error)
       throw error
     }
   }
@@ -143,39 +228,70 @@ export class AIService {
     const {
       provider = 'openai',
       prompt,
-      systemPrompt = '',
+      systemPrompt,
       temperature = 0.7,
       maxTokens,
       modelOverride
-    } = options;
-
-    // Get the model ID to use
-    const modelId = this.resolveModelId(provider, modelOverride);
-
+    } = options
+    
+    // Check if the provider is available
+    if (!this.apiAvailability[provider]) {
+      console.warn(`${provider} API is marked as unavailable. Using fallback response.`)
+      return this.getFallbackResponse(provider, prompt, {})
+    }
+    
     try {
+      // Resolve model ID
+      const modelId = modelOverride || this.resolveModelId(provider)
+      
+      // Make API request
       const response = await fetch(`${this.apiUrl}/api/ai/generate`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           provider,
-          modelId,
           prompt,
           systemPrompt,
           temperature,
-          maxTokens
+          maxTokens,
+          modelId
         })
-      });
-
+      })
+      
       if (!response.ok) {
-        throw new Error('Failed to get AI response');
+        // Increment retry count
+        this.retryCount++
+        
+        // If we've exceeded max retries, mark provider as unavailable
+        if (this.retryCount >= this.maxRetries) {
+          console.warn(`${provider} API has failed ${this.maxRetries} times. Marking as unavailable.`)
+          this.apiAvailability[provider] = false
+        }
+        
+        throw new Error(`Failed to get response from ${provider}: ${response.statusText}`)
       }
-
-      return await response.json();
+      
+      // Reset retry count on success
+      this.retryCount = 0
+      
+      const data = await response.json()
+      return data
     } catch (error) {
-      console.error('AI Response Error:', error);
-      throw error;
+      console.error(`Error getting response from ${provider}:`, error)
+      
+      // Increment retry count
+      this.retryCount++
+      
+      // If we've exceeded max retries, mark provider as unavailable
+      if (this.retryCount >= this.maxRetries) {
+        console.warn(`${provider} API has failed ${this.maxRetries} times. Marking as unavailable.`)
+        this.apiAvailability[provider] = false
+      }
+      
+      // Return fallback response
+      return this.getFallbackResponse(provider, prompt, {})
     }
   }
 }

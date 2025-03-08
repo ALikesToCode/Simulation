@@ -1,10 +1,21 @@
-import { defineEventHandler, readBody, createError } from 'h3'
+// @ts-ignore
+import { defineEventHandler, readBody, createError } from '#imports'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import ModelService from '../../../services/ModelService'
 
-export default defineEventHandler(async (event) => {
+// Define a simple interface for the event object
+interface ApiEvent {
+  // Add minimal properties needed for type checking
+  node: {
+    req: any;
+    res: any;
+  };
+  context: any;
+}
+
+export default defineEventHandler(async (event: ApiEvent) => {
   try {
     const body = await readBody(event)
     const { 
@@ -47,8 +58,8 @@ export default defineEventHandler(async (event) => {
           const response = await openai.chat.completions.create({
             model: modelIdToUse,
             messages: [
-              ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-              { role: 'user', content: prompt }
+              ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+              { role: 'user' as const, content: prompt }
             ],
             temperature: temperature,
             max_tokens: maxTokens || undefined
@@ -93,7 +104,7 @@ export default defineEventHandler(async (event) => {
               }
             ],
             generationConfig,
-            systemInstruction: systemPrompt || undefined
+            ...(systemPrompt ? { systemInstruction: systemPrompt } : {})
           })
           
           const response = await result.response
@@ -127,11 +138,10 @@ export default defineEventHandler(async (event) => {
 
           const response = await anthropic.messages.create({
             model: modelIdToUse,
-            system: systemPrompt || undefined,
+            ...(systemPrompt ? { system: systemPrompt } : {}),
             messages: [
               { role: 'user', content: prompt }
             ],
-            temperature: temperature,
             max_tokens: maxTokens || undefined
           })
 
