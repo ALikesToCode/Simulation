@@ -419,11 +419,36 @@ const worldToLatLng = (position: THREE.Vector3): google.maps.LatLng => {
   return new google.maps.LatLng(lat, lng)
 }
 
-// Update agent markers on the map
+// Create a helper function for creating agent markers
+const createAgentMarker = (agent: any, map: any) => {
+  const position = agent.position;
+  const latLng = worldToLatLng(position);
+  
+  const markerColor = agent.type === 'blue' ? 'blue' : 
+                      agent.type === 'red' ? 'red' : 'green';
+  
+  const marker = new google.maps.Marker({
+    position: latLng,
+    map: map,
+    title: agent.id,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: markerColor,
+      fillOpacity: 0.8,
+      strokeColor: 'white',
+      strokeWeight: 1,
+      scale: 8
+    }
+  });
+  
+  return marker;
+};
+
+// Update agent markers
 const updateAgentMarkers = () => {
   if (!map.value) return;
   
-  // Remove all existing markers
+  // Clear existing markers
   agentMarkers.forEach(marker => {
     if (marker instanceof google.maps.Marker) {
       marker.setMap(null);
@@ -432,103 +457,35 @@ const updateAgentMarkers = () => {
     }
   });
   
-  // Clear the array
   agentMarkers = [];
   
-  // Skip if agents are not visible
-  if (!agentsVisible.value) {
-    return;
-  }
-  
-  // Create new markers for all agents
-  for (const agent of agents.value) {
-    try {
-      const latLng = worldToLatLng(agent.position);
-      createAgentMarker(agent, latLng);
-    } catch (error) {
-      console.error(`Error processing agent ${agent.id}:`, error);
-    }
-  }
+  // Add markers for each agent using the helper function
+  agents.value.forEach(agent => {
+    const marker = createAgentMarker(agent, map.value);
+    agentMarkers.push(marker);
+  });
 };
 
-// Helper function to create a new agent marker
-const createAgentMarker = (agent: any, latLng: google.maps.LatLng) => {
-  try {
-    // Check if AdvancedMarkerElement is available
-    if (google.maps.marker && google.maps.marker.AdvancedMarkerElement) {
-      // Create marker content
-      const markerContent = document.createElement('div');
-      markerContent.className = 'agent-marker';
-      markerContent.style.width = '16px';
-      markerContent.style.height = '16px';
-      markerContent.style.borderRadius = '50%';
-      markerContent.style.backgroundColor = agent.type === 'blue' ? '#4444ff' : '#ff4444';
-      markerContent.style.border = '2px solid white';
-      markerContent.style.display = 'flex';
-      markerContent.style.alignItems = 'center';
-      markerContent.style.justifyContent = 'center';
-      
-      // Add label
-      const label = document.createElement('span');
-      label.textContent = agent.id.split('_')[1] || '';
-      label.style.color = 'white';
-      label.style.fontSize = '10px';
-      markerContent.appendChild(label);
-      
-      // Create advanced marker
-      const advancedMarker = new google.maps.marker.AdvancedMarkerElement({
-        position: latLng,
-        map: map.value,
-        title: agent.id,
-        content: markerContent
-      });
-      
-      // Add click listener
-      advancedMarker.addListener('click', () => {
-        const customEvent = {
-          latLng: latLng
-        } as google.maps.MapMouseEvent;
-        
-        emit('map-click', customEvent);
-      });
-      
-      agentMarkers.push(advancedMarker);
-    } else {
-      // Fallback to regular marker
-      const marker = new google.maps.Marker({
-        position: latLng,
-        map: map.value,
-        title: agent.id,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          fillColor: agent.type === 'blue' ? '#4444ff' : '#ff4444',
-          fillOpacity: 0.8,
-          strokeColor: 'white',
-          strokeWeight: 2,
-          scale: 8
-        },
-        label: {
-          text: agent.id.split('_')[1] || '',
-          color: 'white',
-          fontSize: '10px'
-        },
-        optimized: true
-      });
-      
-      // Add click listener to marker
-      marker.addListener('click', () => {
-        const customEvent = {
-          latLng: marker.getPosition()
-        } as google.maps.MapMouseEvent;
-        
-        emit('map-click', customEvent);
-      });
-      
-      agentMarkers.push(marker);
+// Show agent markers for swarm view
+const showAgentMarkers = () => {
+  if (!map.value) return;
+  
+  // Clear existing markers
+  agentMarkers.forEach(marker => {
+    if (marker instanceof google.maps.Marker) {
+      marker.setMap(null);
+    } else if (marker instanceof google.maps.marker.AdvancedMarkerElement) {
+      marker.map = null;
     }
-  } catch (error) {
-    console.error('Error creating marker for agent:', agent.id, error);
-  }
+  });
+  
+  agentMarkers = [];
+  
+  // Add markers for each agent using the helper function
+  agents.value.forEach(agent => {
+    const marker = createAgentMarker(agent, map.value);
+    agentMarkers.push(marker);
+  });
 };
 
 // Load Google Maps API dynamically if not already loaded by Nuxt
@@ -602,47 +559,6 @@ const setupMapView = () => {
       map.value.setZoom(17);
       break;
   }
-};
-
-// Show agent markers for swarm view
-const showAgentMarkers = () => {
-  if (!map.value) return;
-  
-  // Clear existing markers
-  agentMarkers.forEach(marker => {
-    if (marker instanceof google.maps.Marker) {
-      marker.setMap(null);
-    } else if (marker instanceof google.maps.marker.AdvancedMarkerElement) {
-      marker.map = null;
-    }
-  });
-  
-  agentMarkers = [];
-  
-  // Add markers for each agent
-  agents.value.forEach(agent => {
-    const position = agent.position;
-    const latLng = worldToLatLng(position);
-    
-    const markerColor = agent.type === 'blue' ? 'blue' : 
-                        agent.type === 'red' ? 'red' : 'green';
-    
-    const marker = new google.maps.Marker({
-      position: latLng,
-      map: map.value,
-      title: agent.id, // Use id instead of name
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        fillColor: markerColor,
-        fillOpacity: 0.8,
-        strokeColor: 'white',
-        strokeWeight: 1,
-        scale: 8
-      }
-    });
-    
-    agentMarkers.push(marker);
-  });
 };
 
 // Watch for viewMode changes

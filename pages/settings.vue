@@ -11,6 +11,11 @@
     <div class="settings-section">
       <h2>API Keys</h2>
       <p>Configure your API keys for different AI providers.</p>
+      <div class="security-warning">
+        <strong>⚠️ Security Warning:</strong> Storing API keys in the browser is not secure for production use. 
+        In a real application, API keys should be stored securely on a server and never exposed to the client.
+        This implementation is for demonstration purposes only.
+      </div>
       
       <div class="api-key-form">
         <div class="form-group">
@@ -190,5 +195,14 @@ select {
 
 .api-key-form {
   margin-top: 1.5rem;
+}
+
+.security-warning {
+  background-color: #fff3cd;
+  color: #856404;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  border-left: 4px solid #ffeeba;
 }
 </style> 

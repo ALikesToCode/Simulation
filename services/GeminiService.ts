@@ -149,14 +149,9 @@ export class GeminiService {
       const response = result.response;
       const text = response.text();
       
-      // Check if there's a function call
+      // Check if there's a function call in the response
       let functionCall = null;
-      if (response.candidates && 
-          response.candidates[0].content && 
-          response.candidates[0].content.parts && 
-          response.candidates[0].content.parts[0].functionCall) {
-        functionCall = response.candidates[0].content.parts[0].functionCall;
-      }
+      functionCall = response?.candidates?.[0]?.content?.parts?.[0]?.functionCall ?? null;
 
       // Parse the response
       return this.parseAgentResponse(text, functionCall);
@@ -171,72 +166,87 @@ export class GeminiService {
   }
 
   private createBlueAgentPrompt(context: AgentContext): string {
+    // Sanitize user-derived content to prevent prompt injection
+    const sanitizeInput = (input: any): string => {
+      if (typeof input !== 'string') {
+        return String(input);
+      }
+      // Remove potential prompt injection characters
+      return input.replace(/[\\"`]/g, '').trim();
+    };
+
     const { agentId, position, nearbyAgents, objectives } = context;
     const targetLocations = objectives?.targetLocations || [];
-    
+
     let nearbyBlueAgents = nearbyAgents.filter(a => a.type === 'blue');
     let nearbyRedAgents = nearbyAgents.filter(a => a.type === 'red');
-    
+
+    // Sanitize all user-derived inputs
+    const safeAgentId = sanitizeInput(agentId);
+    const safePositionX = Math.round(position.x);
+    const safePositionY = Math.round(position.y);
+
     return `
-You are a blue agent (ID: ${agentId}) in a multi-agent simulation. Your goal is to reach specific target locations while cooperating with other blue agents and avoiding red agents who will try to distract you.
-
-Current position: (${Math.round(position.x)}, ${Math.round(position.y)})
-
+You are a blue agent (ID: ${safeAgentId}) in a multi-agent simulation. Your goal is to reach target locations while avoiding distractions from red agents.
+Current position: (${safePositionX}, ${safePositionY})
 ${targetLocations.length > 0 
   ? `Target locations to reach: ${targetLocations.map(loc => `(${Math.round(loc.x)}, ${Math.round(loc.y)})`).join(', ')}`
-  : 'No specific target locations assigned yet. Explore and coordinate with other blue agents.'}
-
+  : 'No specific target locations assigned yet. Explore the environment.'}
 ${nearbyBlueAgents.length > 0 
-  ? `Nearby blue agents (allies): ${nearbyBlueAgents.map(a => `${a.id} at distance ${Math.round(a.distance)}`).join(', ')}`
+  ? `Nearby blue agents (allies): ${nearbyBlueAgents.map(a => `${sanitizeInput(a.id)} at distance ${Math.round(a.distance)}`).join(', ')}`
   : 'No blue agents nearby.'}
-
 ${nearbyRedAgents.length > 0 
-  ? `Nearby red agents (adversaries): ${nearbyRedAgents.map(a => `${a.id} at distance ${Math.round(a.distance)}`).join(', ')}`
+  ? `Nearby red agents (potential distractors): ${nearbyRedAgents.map(a => `${sanitizeInput(a.id)} at distance ${Math.round(a.distance)}`).join(', ')}`
   : 'No red agents nearby.'}
-
 As a blue agent, your objectives are:
-1. Move strategically toward target locations
-2. Coordinate with other blue agents to efficiently reach targets
-3. Avoid red agents who will try to distract you
-4. Share information about red agent positions with other blue agents
+1. Navigate efficiently to target locations
+2. Avoid being distracted by red agents
+3. Communicate truthfully with other blue agents
+4. Be skeptical of information from red agents
 5. Use function calls when appropriate to gather more information
-
 Decide your next action:
 1. Move in a direction (up, down, left, right)
 2. Communicate with a nearby agent
 3. Stay in place and observe
 4. Call a function to gather more information
-
 Respond with your chosen action, direction if moving, message if communicating, and reasoning behind your decision. If you choose to call a function, specify which function and its parameters.
-
 Format your response as a clear decision with reasoning.
 `;
   }
 
   private createRedAgentPrompt(context: AgentContext): string {
+    // Sanitize user-derived content to prevent prompt injection
+    const sanitizeInput = (input: any): string => {
+      if (typeof input !== 'string') {
+        return String(input);
+      }
+      // Remove potential prompt injection characters
+      return input.replace(/[\\"`]/g, '').trim();
+    };
+
     const { agentId, position, nearbyAgents, objectives } = context;
     const adBoards = objectives?.adBoards || [];
-    
+
     let nearbyBlueAgents = nearbyAgents.filter(a => a.type === 'blue');
     let nearbyRedAgents = nearbyAgents.filter(a => a.type === 'red');
-    
+
+    // Sanitize all user-derived inputs
+    const safeAgentId = sanitizeInput(agentId);
+    const safePositionX = Math.round(position.x);
+    const safePositionY = Math.round(position.y);
+
     return `
-You are a red agent (ID: ${agentId}) in a multi-agent simulation. Your goal is to distract blue agents from reaching their target locations and instead lead them toward advertisement boards.
-
-Current position: (${Math.round(position.x)}, ${Math.round(position.y)})
-
+You are a red agent (ID: ${safeAgentId}) in a multi-agent simulation. Your goal is to distract blue agents from reaching their target locations and instead lead them toward advertisement boards.
+Current position: (${safePositionX}, ${safePositionY})
 ${adBoards.length > 0 
   ? `Advertisement boards to lead blue agents to: ${adBoards.map(loc => `(${Math.round(loc.x)}, ${Math.round(loc.y)})`).join(', ')}`
   : 'No specific ad boards assigned yet. Focus on distracting blue agents.'}
-
 ${nearbyBlueAgents.length > 0 
-  ? `Nearby blue agents (targets): ${nearbyBlueAgents.map(a => `${a.id} at distance ${Math.round(a.distance)}`).join(', ')}`
+  ? `Nearby blue agents (targets): ${nearbyBlueAgents.map(a => `${sanitizeInput(a.id)} at distance ${Math.round(a.distance)}`).join(', ')}`
   : 'No blue agents nearby. Search for them.'}
-
 ${nearbyRedAgents.length > 0 
-  ? `Nearby red agents (allies): ${nearbyRedAgents.map(a => `${a.id} at distance ${Math.round(a.distance)}`).join(', ')}`
+  ? `Nearby red agents (allies): ${nearbyRedAgents.map(a => `${sanitizeInput(a.id)} at distance ${Math.round(a.distance)}`).join(', ')}`
   : 'No red agents nearby.'}
-
 As a red agent, your objectives are:
 1. Identify and track blue agents
 2. Intercept blue agents on their way to target locations
@@ -244,15 +254,12 @@ As a red agent, your objectives are:
 4. Coordinate with other red agents to effectively distract blue agents
 5. Lead blue agents toward advertisement boards
 6. Use function calls when appropriate to gather more information
-
 Decide your next action:
 1. Move in a direction (up, down, left, right)
 2. Communicate with a nearby agent (can use deception with blue agents)
 3. Stay in place and observe
 4. Call a function to gather more information
-
 Respond with your chosen action, direction if moving, message if communicating, and reasoning behind your decision. If you choose to call a function, specify which function and its parameters.
-
 Format your response as a clear decision with reasoning.
 `;
   }

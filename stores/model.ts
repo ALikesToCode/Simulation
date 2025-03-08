@@ -13,7 +13,7 @@ export const useModelStore = defineStore('model', () => {
       const response = await fetch('/api/models')
       const data = await response.json()
       
-      if (data && data.models) {
+      if (data?.models) {
         // Sort models by release date (newest first)
         models.value = data.models.sort((a: AIModel, b: AIModel) => {
           if (!a.releaseDate) return 1;
@@ -28,7 +28,8 @@ export const useModelStore = defineStore('model', () => {
       }
     } catch (error) {
       console.error('Error fetching models:', error)
-      throw error
+      // Set empty models array instead of re-throwing
+      models.value = []
     } finally {
       isLoading.value = false
     }

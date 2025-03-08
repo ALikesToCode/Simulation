@@ -76,11 +76,11 @@
   color: var(--color-primary);
 }
 
-.nav-link.router-link-active {
+.nav-link.nuxt-link-active {
   color: var(--color-primary);
 }
 
-.nav-link.router-link-active::after {
+.nav-link.nuxt-link-active::after {
   content: '';
   position: absolute;
   bottom: 0;

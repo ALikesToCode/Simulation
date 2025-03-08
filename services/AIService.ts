@@ -7,6 +7,15 @@ interface AIResponse {
   confidence: number
 }
 
+/**
+ * Options for generating AI responses.
+ * @param {string} provider - The AI provider to use.
+ * @param {string} prompt - The prompt text.
+ * @param {string} [systemPrompt] - Optional system prompt for context.
+ * @param {number} [temperature] - Sampling temperature.
+ * @param {number} [maxTokens] - Max tokens to generate.
+ * @param {string} [modelOverride] - Force a specific model ID.
+ */
 interface AIRequestOptions {
   provider?: 'openai' | 'gemini' | 'anthropic'
   prompt: string
@@ -26,6 +35,34 @@ export class AIService {
   async init() {
     // No initialization needed for frontend service
   }
+  
+  /**
+   * Resolves the appropriate model ID based on provider and user preferences
+   * @param provider The AI provider to use
+   * @param modelOverride Optional override to force a specific model
+   * @returns The resolved model ID to use
+   */
+  private resolveModelId(provider: 'openai' | 'gemini' | 'anthropic', modelOverride?: string): string {
+    // Use the override if provided
+    if (modelOverride) {
+      return modelOverride;
+    }
+    
+    // Get the selected model from localStorage or use the latest model from the provider
+    const storedModel = typeof window !== 'undefined' ? localStorage.getItem('selectedModel') : null;
+    
+    if (storedModel && ModelService.modelExists(storedModel)) {
+      const model = ModelService.getModelById(storedModel);
+      // Only use the stored model if it matches the requested provider
+      if (model && model.provider === provider) {
+        return storedModel;
+      }
+    }
+    
+    // Otherwise use the latest model for the provider
+    const latestModel = ModelService.getLatestModel(provider);
+    return latestModel?.id || '';
+  }
 
   async getAgentResponse(
     provider: 'openai' | 'gemini' | 'anthropic',
@@ -34,16 +71,7 @@ export class AIService {
   ): Promise<AIResponse> {
     try {
       // Get the model ID to use
-      const storedModel = typeof window !== 'undefined' ? localStorage.getItem('selectedModel') : null;
-      let modelId = '';
-      
-      if (storedModel && ModelService.modelExists(storedModel)) {
-        const model = ModelService.getModelById(storedModel);
-        // Only use the stored model if it matches the requested provider
-        if (model && model.provider === provider) {
-          modelId = storedModel;
-        }
-      }
+      const modelId = this.resolveModelId(provider);
       
       const response = await fetch(`${this.apiUrl}/api/agent/response`, {
         method: 'POST',
@@ -122,31 +150,7 @@ export class AIService {
     } = options;
 
     // Get the model ID to use
-    let modelId: string;
-    
-    if (modelOverride) {
-      // Use the override if provided
-      modelId = modelOverride;
-    } else {
-      // Get the selected model from localStorage or use the latest model from the provider
-      const storedModel = typeof window !== 'undefined' ? localStorage.getItem('selectedModel') : null;
-      
-      if (storedModel && ModelService.modelExists(storedModel)) {
-        const model = ModelService.getModelById(storedModel);
-        // Only use the stored model if it matches the requested provider
-        if (model && model.provider === provider) {
-          modelId = storedModel;
-        } else {
-          // Otherwise use the latest model for the provider
-          const latestModel = ModelService.getLatestModel(provider);
-          modelId = latestModel?.id || '';
-        }
-      } else {
-        // Use the latest model for the provider
-        const latestModel = ModelService.getLatestModel(provider);
-        modelId = latestModel?.id || '';
-      }
-    }
+    const modelId = this.resolveModelId(provider, modelOverride);
 
     try {
       const response = await fetch(`${this.apiUrl}/api/ai/generate`, {

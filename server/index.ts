@@ -72,11 +72,12 @@ app.post('/api/agent/response', async (req: Request, res: Response) => {
           const response = await result.response
           const text = response.text()
           
-          return {
+          res.json({
             text,
             reasoning: [`Generated using ${latestModel?.name || 'Gemini 1.5 Pro'}`],
             confidence: 0.9
-          }
+          })
+          return
         } catch (error) {
           console.error('Gemini API error:', error)
           throw createError({
