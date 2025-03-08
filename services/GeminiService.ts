@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import ModelService from './ModelService';
 
 // Define interfaces for agent communication
 export interface AgentContext {
@@ -33,10 +34,15 @@ export class GeminiService {
   private genAI: GoogleGenerativeAI;
   private model: any;
   
-  constructor(apiKey: string = 'AIzaSyDGeLvljHRglj1HW0LEHdKNJxolyo5tct0') {
+  constructor(apiKey: string = process.env.GOOGLE_API_KEY || '') {
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash-latest',
+    
+    // Get the latest Gemini model from ModelService
+    const latestModel = ModelService.getLatestModel('google');
+    const modelId = latestModel?.id || 'gemini-1.5-pro';
+    
+    this.model = this.genAI.getGenerativeModel({
+      model: modelId,
       safetySettings: [
         {
           category: HarmCategory.HARM_CATEGORY_HARASSMENT,

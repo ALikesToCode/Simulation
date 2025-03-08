@@ -5,6 +5,8 @@ import OpenAI from 'openai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
 import dotenv from 'dotenv'
+import createError from 'http-errors'
+import ModelService from '../services/ModelService'
 
 dotenv.config()
 
@@ -60,16 +62,28 @@ app.post('/api/agent/response', async (req: Request, res: Response) => {
           return
         }
 
-        const model = gemini.getGenerativeModel({ model: 'gemini-pro' })
-        const response = await model.generateContent(prompt)
-        const result = response.response.text()
-        
-        res.json({
-          text: result,
-          reasoning: ['Processed input', 'Generated response', 'Evaluated outcome'],
-          confidence: 0.8
-        })
-        return
+        try {
+          // Get the latest Gemini model from ModelService
+          const latestModel = ModelService.getLatestModel('google');
+          const modelId = latestModel?.id || 'gemini-1.5-pro';
+          
+          const model = gemini.getGenerativeModel({ model: modelId })
+          const result = await model.generateContent(prompt)
+          const response = await result.response
+          const text = response.text()
+          
+          return {
+            text,
+            reasoning: [`Generated using ${latestModel?.name || 'Gemini 1.5 Pro'}`],
+            confidence: 0.9
+          }
+        } catch (error) {
+          console.error('Gemini API error:', error)
+          throw createError({
+            statusCode: 500,
+            statusMessage: 'Failed to get response from Gemini'
+          })
+        }
       }
       
       case 'anthropic': {

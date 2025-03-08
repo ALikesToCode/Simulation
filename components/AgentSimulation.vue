@@ -84,7 +84,7 @@
                       {{ message.sender }}
                     </span>
                   </div>
-                  <div class="message-content" v-html="formatMessageContent(message.content)"></div>
+                  <div class="message-content" v-html="sanitizeContent(formatMessageContent(message.content))"></div>
                 </div>
               </div>
             </div>
@@ -165,7 +165,7 @@
                   {{ message.sender }}
                 </span>
               </div>
-              <div class="message-content" v-html="formatMessageContent(message.content)"></div>
+              <div class="message-content" v-html="sanitizeContent(formatMessageContent(message.content))"></div>
             </div>
             <div v-if="!selectedAgent.messages?.length" class="no-messages">
               No messages yet
@@ -222,6 +222,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { AIService } from '~/services/AIService';
 import GeminiService from '~/services/GeminiService';
 import type { AgentContext, AgentResponse } from '~/services/GeminiService';
+import DOMPurify from 'dompurify';
 
 // Constants
 const SIMULATION_WIDTH = 800;
@@ -1539,6 +1540,11 @@ function formatMessageContent(content: string): string {
   
   return content;
 }
+
+// Sanitize HTML content to prevent XSS attacks
+const sanitizeContent = (html: string): string => {
+  return DOMPurify.sanitize(html);
+};
 
 // Auto-scroll chat
 watch(allMessages, () => {
