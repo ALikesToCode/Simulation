@@ -10,6 +10,7 @@
       <div class="nav-links" :class="{ 'mobile-open': mobileMenuOpen }">
         <NuxtLink to="/" class="nav-link" @click="closeMobileMenu">Home</NuxtLink>
         <NuxtLink to="/simulation" class="nav-link" @click="closeMobileMenu">Integrated Simulation</NuxtLink>
+        <NuxtLink to="/agent-simulation" class="nav-link" @click="closeMobileMenu">Agent Simulation</NuxtLink>
         <NuxtLink to="/map3d" class="nav-link" @click="closeMobileMenu">3D Map</NuxtLink>
         <NuxtLink to="/map3d-advanced" class="nav-link" @click="closeMobileMenu">Advanced 3D</NuxtLink>
       </div>
